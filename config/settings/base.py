@@ -33,12 +33,29 @@ def get_list_env(name, default=""):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def unique_items(items):
+    return list(dict.fromkeys(item for item in items if item))
+
+
 load_env_file(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "troque-esta-chave")
 DEBUG = get_bool_env("DJANGO_DEBUG", False)
+
 ALLOWED_HOSTS = get_list_env("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost")
 CSRF_TRUSTED_ORIGINS = get_list_env("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+
+VERCEL_URL = os.getenv("VERCEL_URL", "").strip()
+if os.getenv("VERCEL"):
+    ALLOWED_HOSTS.extend([".vercel.app"])
+    CSRF_TRUSTED_ORIGINS.extend(["https://*.vercel.app"])
+
+if VERCEL_URL:
+    ALLOWED_HOSTS.append(VERCEL_URL)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{VERCEL_URL}")
+
+ALLOWED_HOSTS = unique_items(ALLOWED_HOSTS)
+CSRF_TRUSTED_ORIGINS = unique_items(CSRF_TRUSTED_ORIGINS)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -83,19 +100,32 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.getenv("DJANGO_SQLITE_PATH", str(BASE_DIR / "db.sqlite3")),
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+
+if DATABASE_URL:
+    import dj_database_url
+
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.getenv("DJANGO_SQLITE_PATH", str(BASE_DIR / "db.sqlite3")),
+        }
+    }
 
 LANGUAGE_CODE = "pt-br"
 TIME_ZONE = "America/Sao_Paulo"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {
