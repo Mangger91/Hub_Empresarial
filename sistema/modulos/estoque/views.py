@@ -869,9 +869,10 @@ def importar_estoque_adm(request):
             ]
             try:
                 with TemporaryDirectory() as diretorio:
-                    movimentos_excluidos, itens_excluidos = comando.substituir_estoque_adm()
-                    resumo_total["movimentos_excluidos"] = movimentos_excluidos
-                    resumo_total["itens_excluidos"] = itens_excluidos
+                    if form.cleaned_data.get("substituir_estoque"):
+                        movimentos_excluidos, itens_excluidos = comando.substituir_estoque_adm()
+                        resumo_total["movimentos_excluidos"] = movimentos_excluidos
+                        resumo_total["itens_excluidos"] = itens_excluidos
 
                     for arquivo, categoria in arquivos:
                         if not arquivo:
@@ -889,7 +890,7 @@ def importar_estoque_adm(request):
             else:
                 messages.success(
                     request,
-                    "Estoque ADM substituido com sucesso: "
+                    "Estoque ADM importado com sucesso: "
                     f"{resumo_total['itens_criados']} itens criados, "
                     f"{resumo_total['itens_atualizados']} atualizados, "
                     f"{resumo_total['entradas_criadas']} entradas, "

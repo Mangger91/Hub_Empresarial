@@ -4,11 +4,13 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from sistema.modulos.usuarios.forms import UsuarioSistemaForm
+from sistema.modulos.estoque.forms import ImportarEstoquePlanilhasForm
 
 from .models import (
     CategoriaEstoque,
@@ -595,6 +597,26 @@ class EstoqueTests(TestCase):
 
         self.assertContains(resposta, "Editar")
         self.assertNotContains(resposta, "Excluir")
+
+    def test_importacao_estoque_permite_apenas_uma_planilha_por_envio(self):
+        form = ImportarEstoquePlanilhasForm(
+            files={
+                "arquivo_copa": SimpleUploadedFile("copa.xlsx", b"arquivo"),
+                "arquivo_expediente": SimpleUploadedFile("expediente.xlsx", b"arquivo"),
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Envie uma planilha por vez", form.errors["__all__"][0])
+
+    def test_importacao_estoque_permite_adicionar_sem_limpar(self):
+        form = ImportarEstoquePlanilhasForm(
+            data={},
+            files={"arquivo_expediente": SimpleUploadedFile("expediente.xlsx", b"arquivo")},
+        )
+
+        self.assertTrue(form.is_valid())
+        self.assertFalse(form.cleaned_data["substituir_estoque"])
 
     def test_relatorio_mensal_calcula_custo_retiradas_por_produto(self):
         MovimentacaoEstoque.objects.create(

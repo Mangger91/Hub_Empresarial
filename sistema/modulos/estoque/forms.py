@@ -295,6 +295,12 @@ class RelatorioEstoqueFiltroForm(forms.Form):
 
 
 class ImportarEstoquePlanilhasForm(forms.Form):
+    substituir_estoque = forms.BooleanField(
+        label="Limpar o Estoque ADM antes de importar",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "checkbox-control"}),
+    )
     arquivo_copa = forms.FileField(
         label="Planilha de Copa",
         required=False,
@@ -308,6 +314,16 @@ class ImportarEstoquePlanilhasForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        if not cleaned_data.get("arquivo_copa") and not cleaned_data.get("arquivo_expediente"):
+        arquivos_enviados = [
+            cleaned_data.get("arquivo_copa"),
+            cleaned_data.get("arquivo_expediente"),
+        ]
+        total_arquivos = sum(1 for arquivo in arquivos_enviados if arquivo)
+        if total_arquivos == 0:
             raise forms.ValidationError("Envie ao menos uma planilha para importar.")
+        if total_arquivos > 1:
+            raise forms.ValidationError(
+                "Envie uma planilha por vez para evitar timeout no Vercel. "
+                "Importe Copa limpando o estoque e depois Expediente sem limpar."
+            )
         return cleaned_data
