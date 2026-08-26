@@ -5,6 +5,7 @@ import unicodedata
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 from openpyxl import load_workbook
 
 from sistema.models import ItemEstoque, MovimentacaoEstoque
@@ -182,6 +183,46 @@ class Command(BaseCommand):
         }
 
         itens_por_nome = {}
+        itens_com_movimento = set(
+            MovimentacaoEstoque.objects.filter(
+                item__area=ItemEstoque.Area.ADMINISTRATIVO
+            ).values_list("item_id", flat=True)
+        )
+        saldos_por_item = {}
+        itens_com_saldo_alterado = {}
+        movimentos_para_criar = []
+        origens_importadas = set()
+
+        def saldo_item(item):
+            if item.pk not in saldos_por_item:
+                saldos_por_item[item.pk] = item.quantidade_atual
+            return saldos_por_item[item.pk]
+
+        def registrar_saldo(item, novo_saldo):
+            saldos_por_item[item.pk] = novo_saldo
+            item.quantidade_atual = novo_saldo
+            itens_com_saldo_alterado[item.pk] = item
+
+        def adicionar_movimentacao(item, tipo, quantidade, quantidade_devolvida=0, **campos):
+            movimentos_para_criar.append(
+                MovimentacaoEstoque(
+                    item=item,
+                    tipo=tipo,
+                    quantidade=quantidade,
+                    quantidade_devolvida=quantidade_devolvida,
+                    **campos,
+                )
+            )
+            if tipo == MovimentacaoEstoque.TipoMovimento.ENTRADA:
+                novo_saldo = saldo_item(item) + quantidade
+            else:
+                novo_saldo = saldo_item(item) - (quantidade - quantidade_devolvida)
+            registrar_saldo(item, novo_saldo)
+            itens_com_movimento.add(item.pk)
+            origem = campos.get("origem_externa")
+            if origem:
+                origens_importadas.add(origem)
+
         colunas_prod = self.mapear_colunas(sheet_prod, 6)
         col_nome = colunas_prod.get("CADASTRODEPRODUTOS") or colunas_prod.get("ITEM")
         col_codigo = colunas_prod.get("CODIGOPROPRIO")
@@ -268,9 +309,9 @@ class Command(BaseCommand):
                     item.save()
                     resumo["itens_atualizados"] += 1
 
-            if saldo_atual is not None and not item.movimentacoes.exists():
+            if saldo_atual is not None and item.pk not in itens_com_movimento:
                 if saldo_atual > 0:
-                    MovimentacaoEstoque.objects.create(
+                    adicionar_movimentacao(
                         item=item,
                         data_movimentacao=date.today(),
                         tipo=MovimentacaoEstoque.TipoMovimento.ENTRADA,
@@ -282,8 +323,7 @@ class Command(BaseCommand):
                     )
                     resumo["entradas_criadas"] += 1
                 else:
-                    item.quantidade_atual = 0
-                    item.save(update_fields=["quantidade_atual", "atualizado_em"])
+                    registrar_saldo(item, 0)
 
             itens_por_nome[nome.upper()] = item
 
@@ -302,7 +342,10 @@ class Command(BaseCommand):
                 )
             for row_idx in range(7, sheet_entradas.max_row + 1):
                 origem_externa = f"{caminho.name}|ENTRADAS|{row_idx}"
-                if MovimentacaoEstoque.objects.filter(origem_externa=origem_externa).exists():
+                if (
+                    origem_externa in origens_importadas
+                    or MovimentacaoEstoque.objects.filter(origem_externa=origem_externa).exists()
+                ):
                     resumo["movimentos_ignorados"] += 1
                     continue
 
@@ -339,7 +382,7 @@ class Command(BaseCommand):
                     itens_por_nome[nome.upper()] = item
                     resumo["itens_criados"] += 1
 
-                MovimentacaoEstoque.objects.create(
+                adicionar_movimentacao(
                     item=item,
                     data_movimentacao=data_mov,
                     tipo=MovimentacaoEstoque.TipoMovimento.ENTRADA,
@@ -363,7 +406,10 @@ class Command(BaseCommand):
                 raise CommandError(f"Nao foi possivel mapear colunas da aba SAIDAS em {caminho.name}.")
             for row_idx in range(7, sheet_saidas.max_row + 1):
                 origem_externa = f"{caminho.name}|SAIDAS|{row_idx}"
-                if MovimentacaoEstoque.objects.filter(origem_externa=origem_externa).exists():
+                if (
+                    origem_externa in origens_importadas
+                    or MovimentacaoEstoque.objects.filter(origem_externa=origem_externa).exists()
+                ):
                     resumo["movimentos_ignorados"] += 1
                     continue
 
@@ -418,11 +464,11 @@ class Command(BaseCommand):
                     resumo["itens_criados"] += 1
 
                 saldo_necessario = quantidade - devolvida
-                if saldo_necessario > item.quantidade_atual:
+                if saldo_necessario > saldo_item(item):
                     resumo["movimentos_ignorados"] += 1
                     continue
 
-                MovimentacaoEstoque.objects.create(
+                adicionar_movimentacao(
                     item=item,
                     data_movimentacao=data_mov,
                     tipo=MovimentacaoEstoque.TipoMovimento.SAIDA,
@@ -434,6 +480,20 @@ class Command(BaseCommand):
                     origem_externa=origem_externa,
                 )
                 resumo["saidas_criadas"] += 1
+
+        if movimentos_para_criar:
+            MovimentacaoEstoque.objects.bulk_create(movimentos_para_criar, batch_size=500)
+
+        if itens_com_saldo_alterado:
+            agora = timezone.now()
+            itens_atualizados = list(itens_com_saldo_alterado.values())
+            for item in itens_atualizados:
+                item.atualizado_em = agora
+            ItemEstoque.objects.bulk_update(
+                itens_atualizados,
+                ["quantidade_atual", "atualizado_em"],
+                batch_size=500,
+            )
 
         return resumo
 
