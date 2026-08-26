@@ -1,15 +1,25 @@
 import csv
 from collections import defaultdict
 from decimal import Decimal
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from textwrap import wrap
 import unicodedata
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.management.base import CommandError
 from django.db.models import Case, F, IntegerField, Q, Sum, Value, When
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from sistema.models import CategoriaEstoque, ItemEstoque, ModuloSistema, MovimentacaoEstoque
 from sistema.permissions import usuario_pode_editar, usuario_tem_acesso
@@ -17,10 +27,12 @@ from sistema.permissions import usuario_pode_editar, usuario_tem_acesso
 from ..common import MESES_PT_BR, contexto_modulo, renderizar_modulo_sem_permissao
 from .forms import (
     CategoriaEstoqueForm,
+    ImportarEstoquePlanilhasForm,
     ItemEstoqueForm,
     MovimentacaoEstoqueForm,
     RelatorioEstoqueFiltroForm,
 )
+from sistema.management.commands.importar_estoque_excel import Command as ImportarEstoqueCommand
 from .regras import (
     area_do_modulo_estoque,
     categorias_estoque_por_modulo,
@@ -392,7 +404,7 @@ def _movimentacoes_do_relatorio(area, filtros):
     return movimentacoes.order_by("data_movimentacao", "item__nome", "id")
 
 
-def _montar_relatorio_estoque(movimentacoes):
+def _montar_relatorio_estoque(movimentacoes, itens_controle=None):
     totais = {
         **_novo_totalizador(),
         "saldo_quantidade": 0,
@@ -473,16 +485,55 @@ def _montar_relatorio_estoque(movimentacoes):
 
     totais["itens_movimentados"] = len(itens_movimentados)
 
+    resumo_ordenado = sorted(
+        resumo_por_item.values(),
+        key=lambda item: (
+            -item["custo_retiradas"],
+            -item["retiradas"],
+            item["item"].nome.lower(),
+        ),
+    )
+
+    itens_controle = itens_controle or []
+    tabela_controle = []
+    for item in itens_controle:
+        resumo_item = resumo_por_item.get(
+            item.pk,
+            {
+                "entradas": 0,
+                "retiradas": 0,
+                "devolvidas": 0,
+                "item": item,
+                "saldo_periodo": 0,
+            },
+        )
+        tabela_controle.append(
+            {
+                "item": item,
+                "produto": item.nome,
+                "categoria": item.categoria_nome,
+                "entradas": resumo_item["entradas"],
+                "saidas": resumo_item["retiradas"],
+                "estoque_atual": item.quantidade_atual,
+            }
+        )
+    grupos_controle = []
+    for categoria_nome in sorted({linha["categoria"] for linha in tabela_controle}):
+        grupos_controle.append(
+            {
+                "titulo": f"CONTROLE DE ESTOQUE {categoria_nome}".upper(),
+                "linhas": [
+                    linha for linha in tabela_controle if linha["categoria"] == categoria_nome
+                ],
+            }
+        )
+
     return {
         "totais": totais,
-        "resumo_por_item": sorted(
-            resumo_por_item.values(),
-            key=lambda item: (
-                -item["custo_retiradas"],
-                -item["retiradas"],
-                item["item"].nome.lower(),
-            ),
-        ),
+        "resumo_por_item": resumo_ordenado,
+        "tabela_controle": tabela_controle,
+        "tabelas_controle": grupos_controle,
+        "top_retiradas": [item for item in resumo_ordenado if item["retiradas"] > 0][:5],
         "retiradas_por_data": [retiradas_por_data[data] for data in sorted(retiradas_por_data)],
         "comparativo_mensal": [
             comparativo_mensal[chave] for chave in sorted(comparativo_mensal)
@@ -494,6 +545,31 @@ def _formatar_decimal_csv(valor):
     return f"{valor:.2f}".replace(".", ",")
 
 
+def _texto_pdf(valor):
+    return str(valor or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _titulo_controle_estoque(modulo, filtros):
+    categoria_codigo = filtros.get("categoria")
+    if categoria_codigo:
+        categoria_nome = CategoriaEstoque.objects.filter(
+            area=area_do_modulo_estoque(modulo),
+            codigo=categoria_codigo,
+        ).values_list("nome", flat=True).first()
+        if categoria_nome:
+            return f"Controle de Estoque {categoria_nome}".upper()
+    return f"Controle de Estoque {_titulo_estoque(modulo).replace('Estoque ', '')}".upper()
+
+
+def _itens_controle_estoque(area, filtros):
+    itens = ItemEstoque.objects.filter(area=area, ativo=True)
+    if filtros.get("item"):
+        itens = itens.filter(pk=filtros["item"].pk)
+    if filtros.get("categoria"):
+        itens = itens.filter(categoria=filtros["categoria"])
+    return list(itens.order_by("categoria", "nome"))
+
+
 def _exportar_relatorio_csv(modulo, filtros, movimentacoes, relatorio):
     nome_arquivo = (
         f"relatorio_estoque_{modulo.value}_{filtros['data_inicio']}_{filtros['data_fim']}.csv"
@@ -503,197 +579,161 @@ def _exportar_relatorio_csv(modulo, filtros, movimentacoes, relatorio):
     resposta.write("\ufeff")
 
     escritor = csv.writer(resposta, delimiter=";")
-    escritor.writerow([f"Relatorio financeiro - {_titulo_estoque(modulo)}"])
     escritor.writerow(["Periodo", filtros["data_inicio"].strftime("%d/%m/%Y"), filtros["data_fim"].strftime("%d/%m/%Y")])
-    escritor.writerow([])
-    escritor.writerow(["Indicador", "Valor"])
-    escritor.writerow(["Custo das retiradas", _formatar_decimal_csv(relatorio["totais"]["custo_retiradas"])])
-    escritor.writerow(["Valor de entradas", _formatar_decimal_csv(relatorio["totais"]["custo_entradas"])])
-    escritor.writerow(["Quantidade retirada", relatorio["totais"]["retiradas"]])
-    escritor.writerow(["Quantidade entrada", relatorio["totais"]["entradas"]])
-    escritor.writerow(["Itens movimentados", relatorio["totais"]["itens_movimentados"]])
-    escritor.writerow([])
-    escritor.writerow(
-        [
-            "Data",
-            "Tipo",
-            "Codigo",
-            "Produto",
-            "Categoria",
-            "Setor",
-            "Quantidade",
-            "Devolvida",
-            "Quantidade liquida",
-            "Unidade",
-            "Custo unitario",
-            "Valor total",
-            "Responsavel",
-            "Observacao",
-        ]
-    )
-
-    for movimentacao in movimentacoes:
-        responsavel = ""
-        if movimentacao.responsavel:
-            responsavel = (
-                movimentacao.responsavel.get_full_name()
-                or movimentacao.responsavel.email
-                or movimentacao.responsavel.username
+    for tabela in relatorio["tabelas_controle"]:
+        escritor.writerow([])
+        escritor.writerow([tabela["titulo"]])
+        escritor.writerow(["PRODUTOS", "ENTRADAS", "SAIDAS", "ESTOQUE ATUAL"])
+        for linha in tabela["linhas"]:
+            escritor.writerow(
+                [
+                    linha["produto"],
+                    linha["entradas"],
+                    linha["saidas"],
+                    linha["estoque_atual"],
+                ]
             )
-        escritor.writerow(
-            [
-                movimentacao.data_movimentacao.strftime("%d/%m/%Y"),
-                movimentacao.get_tipo_display(),
-                movimentacao.item.codigo_proprio,
-                movimentacao.item.nome,
-                movimentacao.item.categoria_nome,
-                movimentacao.setor,
-                movimentacao.quantidade,
-                movimentacao.quantidade_devolvida,
-                movimentacao.quantidade_liquida,
-                movimentacao.item.unidade_medida,
-                _formatar_decimal_csv(movimentacao.custo_unitario),
-                _formatar_decimal_csv(_valor_movimentacao(movimentacao)),
-                responsavel,
-                movimentacao.observacao,
-            ]
-        )
 
     return resposta
 
 
 def _exportar_relatorio_pdf(modulo, filtros, movimentacoes, relatorio):
-    paginas = [[]]
-    estado = {"y": PDF_MARGIN_TOP}
     nome_arquivo = (
         f"relatorio_estoque_{modulo.value}_{filtros['data_inicio']}_{filtros['data_fim']}.pdf"
     )
+    buffer = BytesIO()
+    documento = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=1.2 * cm,
+        leftMargin=1.2 * cm,
+        topMargin=1.0 * cm,
+        bottomMargin=1.0 * cm,
+        title="Relatorio de estoque",
+    )
+    estilos = getSampleStyleSheet()
+    produto_style = ParagraphStyle(
+        "ProdutoTabela",
+        parent=estilos["BodyText"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=9,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+    titulo_tabela_style = ParagraphStyle(
+        "TituloTabelaEstoque",
+        parent=estilos["BodyText"],
+        alignment=TA_CENTER,
+        fontName="Helvetica-Bold",
+        fontSize=13,
+        leading=15,
+        textColor=colors.HexColor("#111827"),
+    )
+    periodo_style = ParagraphStyle(
+        "PeriodoRelatorio",
+        parent=estilos["BodyText"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor("#374151"),
+    )
+    numero_style = ParagraphStyle(
+        "NumeroTabela",
+        parent=estilos["BodyText"],
+        alignment=TA_CENTER,
+        fontName="Helvetica",
+        fontSize=8,
+        leading=9,
+    )
+    numero_destaque_style = ParagraphStyle(
+        "NumeroDestaqueTabela",
+        parent=numero_style,
+        fontName="Helvetica-Bold",
+    )
 
-    _adicionar_linha_relatorio_pdf(
-        paginas,
-        estado,
-        f"Relatorio de estoque - {_titulo_estoque(modulo)}",
-        tamanho=15,
-        fonte="F2",
-    )
-    _adicionar_linha_relatorio_pdf(
-        paginas,
-        estado,
-        f"Periodo: {filtros['data_inicio'].strftime('%d/%m/%Y')} a {filtros['data_fim'].strftime('%d/%m/%Y')}",
-        tamanho=10,
-    )
-    detalhes_filtro = []
-    if filtros.get("item"):
-        detalhes_filtro.append(f"Produto: {filtros['item'].nome}")
-    if filtros.get("categoria"):
-        detalhes_filtro.append(f"Categoria: {filtros['categoria']}")
-    if filtros.get("setor"):
-        detalhes_filtro.append(f"Setor: {filtros['setor']}")
-    if filtros.get("tipo"):
-        detalhes_filtro.append(f"Tipo: {MovimentacaoEstoque.TipoMovimento(filtros['tipo']).label}")
-    _adicionar_linha_relatorio_pdf(
-        paginas,
-        estado,
-        "Filtros: " + ("; ".join(detalhes_filtro) if detalhes_filtro else "Todos os movimentos"),
-        tamanho=9,
-    )
-    _adicionar_espaco_pdf(paginas, estado)
-
-    totais = relatorio["totais"]
-    _adicionar_linha_relatorio_pdf(paginas, estado, "Indicadores", tamanho=11, fonte="F2")
-    indicadores = [
-        f"Custo das retiradas: {_formatar_moeda_pdf(totais['custo_retiradas'])}",
-        f"Valor de entradas: {_formatar_moeda_pdf(totais['custo_entradas'])}",
-        f"Quantidade retirada: {totais['retiradas']}",
-        f"Quantidade entrada: {totais['entradas']}",
-        f"Saldo do periodo: {totais['saldo_quantidade']}",
-        f"Itens movimentados: {totais['itens_movimentados']}",
+    conteudo = [
+        Paragraph(
+            f"Periodo: {filtros['data_inicio'].strftime('%d/%m/%Y')} a {filtros['data_fim'].strftime('%d/%m/%Y')}",
+            periodo_style,
+        ),
+        Spacer(1, 0.18 * cm),
     ]
-    for indicador in indicadores:
-        _adicionar_linha_relatorio_pdf(paginas, estado, indicador, tamanho=9)
 
-    _adicionar_espaco_pdf(paginas, estado, altura=12)
-    _adicionar_linha_relatorio_pdf(paginas, estado, "Resumo por produto", tamanho=11, fonte="F2")
-    cabecalho_produtos = (
-        f"{'Produto':30} {'Ent.':>5} {'Ret.':>5} {'Dev.':>5} "
-        f"{'Custo ent.':>13} {'Custo ret.':>13} {'Saldo':>6}"
-    )
-    _adicionar_linha_relatorio_pdf(
-        paginas,
-        estado,
-        cabecalho_produtos,
-        tamanho=8,
-        fonte="F3",
-        largura=140,
-    )
-    if relatorio["resumo_por_item"]:
-        for linha in relatorio["resumo_por_item"]:
-            texto = (
-                f"{_encurtar_texto(linha['item'].nome, 30):30} "
-                f"{linha['entradas']:>5} "
-                f"{linha['retiradas']:>5} "
-                f"{linha['devolvidas']:>5} "
-                f"{_formatar_moeda_pdf(linha['custo_entradas']):>13} "
-                f"{_formatar_moeda_pdf(linha['custo_retiradas']):>13} "
-                f"{linha['saldo_periodo']:>6}"
+    largura_total = landscape(A4)[0] - documento.leftMargin - documento.rightMargin
+    colunas = [largura_total * 0.52, largura_total * 0.15, largura_total * 0.15, largura_total * 0.18]
+
+    if relatorio["tabelas_controle"]:
+        for tabela in relatorio["tabelas_controle"]:
+            dados = [
+                [Paragraph(_texto_pdf(tabela["titulo"]), titulo_tabela_style), "", "", ""],
+                ["PRODUTOS", "ENTRADAS", "SAÍDAS", "ESTOQUE ATUAL"],
+            ]
+            for linha in tabela["linhas"]:
+                dados.append(
+                    [
+                        Paragraph(_texto_pdf(linha["produto"]).upper(), produto_style),
+                        Paragraph(str(linha["entradas"]), numero_style),
+                        Paragraph(str(linha["saidas"]), numero_style),
+                        Paragraph(str(linha["estoque_atual"]), numero_destaque_style),
+                    ]
+                )
+
+            tabela_pdf = LongTable(dados, colWidths=colunas, repeatRows=2)
+            tabela_pdf.setStyle(
+                TableStyle(
+                    [
+                        ("SPAN", (0, 0), (-1, 0)),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#d9e2f3")),
+                        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#c7d2f0")),
+                        ("TEXTCOLOR", (0, 0), (-1, 1), colors.HexColor("#111827")),
+                        ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 13),
+                        ("FONTSIZE", (0, 1), (-1, 1), 8.5),
+                        ("ALIGN", (0, 0), (-1, 1), "CENTER"),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("GRID", (0, 0), (-1, -1), 0.55, colors.HexColor("#4b5563")),
+                        ("BOX", (0, 0), (-1, -1), 1.2, colors.HexColor("#111827")),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                        ("TOPPADDING", (0, 0), (-1, 0), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+                        ("TOPPADDING", (0, 1), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 1), (-1, -1), 3),
+                        ("ROWBACKGROUNDS", (0, 2), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+                    ]
+                )
             )
-            _adicionar_linha_relatorio_pdf(
-                paginas,
-                estado,
-                texto,
-                tamanho=8,
-                fonte="F3",
-                largura=140,
-            )
+            conteudo.append(tabela_pdf)
+            conteudo.append(Spacer(1, 0.35 * cm))
     else:
-        _adicionar_linha_relatorio_pdf(
-            paginas,
-            estado,
-            "Nenhuma movimentacao encontrada para os filtros selecionados.",
+        conteudo.append(
+            Table(
+                [["Nenhum produto encontrado para os filtros selecionados."]],
+                colWidths=[largura_total],
+                style=TableStyle(
+                    [
+                        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#9ca3af")),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("PADDING", (0, 0), (-1, -1), 14),
+                    ]
+                ),
+            )
         )
 
-    _adicionar_espaco_pdf(paginas, estado, altura=12)
-    _adicionar_linha_relatorio_pdf(paginas, estado, "Movimentacoes do periodo", tamanho=11, fonte="F2")
-    cabecalho_movimentos = (
-        f"{'Data':10} {'Tipo':8} {'Produto':28} {'Setor':15} "
-        f"{'Qtd':>5} {'Dev':>5} {'Liq':>5} {'Valor':>12}"
-    )
-    _adicionar_linha_relatorio_pdf(
-        paginas,
-        estado,
-        cabecalho_movimentos,
-        tamanho=8,
-        fonte="F3",
-        largura=140,
-    )
-    if movimentacoes:
-        for movimentacao in movimentacoes:
-            texto = (
-                f"{movimentacao.data_movimentacao.strftime('%d/%m/%Y'):10} "
-                f"{movimentacao.get_tipo_display():8} "
-                f"{_encurtar_texto(movimentacao.item.nome, 28):28} "
-                f"{_encurtar_texto(movimentacao.setor or '-', 15):15} "
-                f"{movimentacao.quantidade:>5} "
-                f"{movimentacao.quantidade_devolvida:>5} "
-                f"{movimentacao.quantidade_liquida:>5} "
-                f"{_formatar_moeda_pdf(movimentacao.valor_total):>12}"
-            )
-            _adicionar_linha_relatorio_pdf(
-                paginas,
-                estado,
-                texto,
-                tamanho=8,
-                fonte="F3",
-                largura=140,
-            )
-    else:
-        _adicionar_linha_relatorio_pdf(
-            paginas,
-            estado,
-            "Nenhuma movimentacao encontrada para os filtros selecionados.",
+    def desenhar_rodape(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#6b7280"))
+        canvas.drawRightString(
+            landscape(A4)[0] - doc.rightMargin,
+            0.55 * cm,
+            f"Pagina {doc.page}",
         )
+        canvas.restoreState()
 
-    resposta = HttpResponse(_renderizar_pdf(paginas), content_type="application/pdf")
+    documento.build(conteudo, onFirstPage=desenhar_rodape, onLaterPages=desenhar_rodape)
+    resposta = HttpResponse(buffer.getvalue(), content_type="application/pdf")
     resposta["Content-Disposition"] = f'attachment; filename="{nome_arquivo}"'
     return resposta
 
@@ -774,10 +814,93 @@ def _estoque(request, modulo):
     context["total_filtrado"] = itens.count()
     context["itens_criticos"] = itens_criticos
     context["mostrar_acoes"] = usuario_pode_editar(request.user, modulo)
+    context["permite_importacao_planilha"] = (
+        modulo == ModuloSistema.ESTOQUE_ADM and usuario_pode_editar(request.user, modulo)
+    )
     context["filtros"] = {"q": busca, "categoria": categoria, "status": status}
     context["categorias_estoque"] = categorias_disponiveis
     context["categoria_selecionada_label"] = dict(categorias_disponiveis).get(categoria, "")
     return render(request, "sistema/estoque_lista.html", context)
+
+
+def _salvar_upload_temporario(arquivo, diretorio):
+    caminho = Path(diretorio) / arquivo.name
+    with caminho.open("wb") as destino:
+        for chunk in arquivo.chunks():
+            destino.write(chunk)
+    return caminho
+
+
+@login_required
+def importar_estoque_adm(request):
+    modulo = ModuloSistema.ESTOQUE_ADM
+    context = contexto_modulo(
+        request,
+        modulo,
+        "Importar Estoque ADM",
+        "Substitua os registros atuais pelas planilhas enviadas.",
+    )
+    context["rota_estoque"] = rota_do_modulo_estoque(modulo)
+
+    if context["acesso_negado"]:
+        context["form"] = ImportarEstoquePlanilhasForm()
+        return render(request, "sistema/estoque_importar.html", context)
+
+    if not context["permite_edicao"]:
+        messages.error(request, "Seu perfil permite apenas visualizar este estoque.")
+        return redirect("estoque_adm")
+
+    if request.method == "POST":
+        form = ImportarEstoquePlanilhasForm(request.POST, request.FILES)
+        if form.is_valid():
+            comando = ImportarEstoqueCommand()
+            resumo_total = {
+                "itens_excluidos": 0,
+                "movimentos_excluidos": 0,
+                "itens_criados": 0,
+                "itens_atualizados": 0,
+                "entradas_criadas": 0,
+                "saidas_criadas": 0,
+                "movimentos_ignorados": 0,
+            }
+            arquivos = [
+                (form.cleaned_data.get("arquivo_copa"), ItemEstoque.Categoria.COPA),
+                (form.cleaned_data.get("arquivo_expediente"), ItemEstoque.Categoria.EXPEDIENTE),
+            ]
+            try:
+                with TemporaryDirectory() as diretorio:
+                    movimentos_excluidos, itens_excluidos = comando.substituir_estoque_adm()
+                    resumo_total["movimentos_excluidos"] = movimentos_excluidos
+                    resumo_total["itens_excluidos"] = itens_excluidos
+
+                    for arquivo, categoria in arquivos:
+                        if not arquivo:
+                            continue
+                        caminho = _salvar_upload_temporario(arquivo, diretorio)
+                        resumo = comando.importar_arquivo(
+                            caminho=caminho,
+                            categoria=categoria,
+                            somente_cadastro=False,
+                        )
+                        for chave, valor in resumo.items():
+                            resumo_total[chave] += valor
+            except CommandError as erro:
+                messages.error(request, f"Nao foi possivel importar as planilhas: {erro}")
+            else:
+                messages.success(
+                    request,
+                    "Estoque ADM substituido com sucesso: "
+                    f"{resumo_total['itens_criados']} itens criados, "
+                    f"{resumo_total['itens_atualizados']} atualizados, "
+                    f"{resumo_total['entradas_criadas']} entradas, "
+                    f"{resumo_total['saidas_criadas']} saidas.",
+                )
+                return redirect("estoque_adm")
+    else:
+        form = ImportarEstoquePlanilhasForm()
+
+    context["form"] = form
+    return render(request, "sistema/estoque_importar.html", context)
 
 
 @login_required
@@ -798,6 +921,13 @@ def relatorio_estoque(request, modulo_codigo):
     movimentacoes = []
     relatorio = _montar_relatorio_estoque(movimentacoes)
     relatorio_valido = False
+    estoque_atual = _montar_painel_estoque(area)
+    itens_criticos = list(
+        ItemEstoque.objects.filter(area=area).filter(
+            Q(quantidade_atual__lte=0)
+            | Q(estoque_minimo__gt=0, quantidade_atual__lt=F("estoque_minimo"))
+        ).order_by("quantidade_atual", "nome")[:12]
+    )
 
     if context["acesso_negado"]:
         context.update(
@@ -806,6 +936,8 @@ def relatorio_estoque(request, modulo_codigo):
                 "relatorio": relatorio,
                 "totais": relatorio["totais"],
                 "movimentacoes": movimentacoes,
+                "estoque_atual": estoque_atual,
+                "itens_criticos": itens_criticos,
                 "relatorio_valido": relatorio_valido,
             }
         )
@@ -815,7 +947,8 @@ def relatorio_estoque(request, modulo_codigo):
         relatorio_valido = True
         filtros = form.cleaned_data
         movimentacoes = list(_movimentacoes_do_relatorio(area, filtros))
-        relatorio = _montar_relatorio_estoque(movimentacoes)
+        itens_controle = _itens_controle_estoque(area, filtros)
+        relatorio = _montar_relatorio_estoque(movimentacoes, itens_controle=itens_controle)
 
         if request.GET.get("export") == "csv":
             return _exportar_relatorio_csv(modulo, filtros, movimentacoes, relatorio)
@@ -831,6 +964,7 @@ def relatorio_estoque(request, modulo_codigo):
                     if filtros.get("periodo") == "mes"
                     else "Periodo personalizado"
                 ),
+                "titulo_controle_estoque": _titulo_controle_estoque(modulo, filtros),
             }
         )
 
@@ -840,6 +974,8 @@ def relatorio_estoque(request, modulo_codigo):
             "relatorio": relatorio,
             "totais": relatorio["totais"],
             "movimentacoes": movimentacoes,
+            "estoque_atual": estoque_atual,
+            "itens_criticos": itens_criticos,
             "relatorio_valido": relatorio_valido,
         }
     )
@@ -1074,6 +1210,34 @@ def editar_item_estoque(request, pk):
         },
     )
     return render(request, "sistema/item_estoque_form.html", context)
+
+
+@login_required
+def excluir_item_estoque(request, pk):
+    item = get_object_or_404(ItemEstoque, pk=pk)
+    modulo = _modulo_por_area_estoque(item.area)
+    context = contexto_modulo(
+        request,
+        modulo,
+        "Excluir Item",
+        f"Confirme a exclusao do item {item.nome}.",
+        extra={"item": item, "movimentacoes_vinculadas": item.movimentacoes.count()},
+    )
+
+    if context["acesso_negado"]:
+        return render(request, "sistema/item_estoque_confirmar_exclusao.html", context)
+
+    if not context["permite_exclusao"]:
+        messages.error(request, "Apenas administradores podem excluir itens de estoque.")
+        return redirect("detalhe_item_estoque", pk=item.pk)
+
+    if request.method == "POST":
+        rota_estoque = rota_do_modulo_estoque(modulo)
+        item.delete()
+        messages.success(request, "Item de estoque excluido com sucesso.")
+        return redirect(rota_estoque)
+
+    return render(request, "sistema/item_estoque_confirmar_exclusao.html", context)
 
 
 @login_required

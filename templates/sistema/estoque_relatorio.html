@@ -60,6 +60,146 @@
         border-color: var(--border-strong);
     }
 
+    .executive-panel {
+        display: grid;
+        gap: 14px;
+    }
+
+    .executive-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    }
+
+    .executive-item {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #f8fafc;
+        padding: 14px;
+    }
+
+    .executive-item strong {
+        color: var(--muted);
+        display: block;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+    }
+
+    .executive-item span {
+        display: block;
+        font-size: 1.45rem;
+        font-weight: 800;
+    }
+
+    .executive-item.is-critical {
+        background: #fff7ed;
+        border-color: #fed7aa;
+    }
+
+    .executive-item.is-critical span {
+        color: #9a3412;
+    }
+
+    .attention-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+    }
+
+    .attention-list li {
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        list-style: none;
+        padding: 9px 0;
+    }
+
+    .attention-list li:last-child {
+        border-bottom: 0;
+    }
+
+    .attention-list small {
+        color: var(--muted);
+        display: block;
+        margin-top: 3px;
+    }
+
+    .attention-badge {
+        border-radius: 999px;
+        background: #fee2e2;
+        color: #991b1b;
+        font-size: 0.78rem;
+        font-weight: 800;
+        padding: 5px 8px;
+        white-space: nowrap;
+    }
+
+    .stock-control-sheet {
+        background: #ffffff;
+        border: 2px solid #111827;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 0;
+        overflow-x: auto;
+    }
+
+    .stock-control-table {
+        border-collapse: collapse;
+        color: #111827;
+        font-size: 0.92rem;
+        min-width: 700px;
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .stock-control-title th {
+        background: #d9e2f3;
+        border: 2px solid #111827;
+        font-size: 1.18rem;
+        font-weight: 900;
+        padding: 4px 8px;
+        text-align: center;
+        text-transform: uppercase;
+    }
+
+    .stock-control-header th {
+        background: #c7d2f0;
+        border: 2px solid #4b5563;
+        font-weight: 900;
+        padding: 3px 8px;
+        text-align: center;
+        text-transform: uppercase;
+    }
+
+    .stock-control-table td {
+        border: 2px solid #5f6368;
+        padding: 2px 6px;
+        line-height: 1.15;
+    }
+
+    .stock-control-table td:first-child {
+        text-transform: uppercase;
+    }
+
+    .stock-control-number {
+        text-align: center;
+    }
+
+    .stock-control-current {
+        font-weight: 900;
+        text-align: center;
+    }
+
+    .stock-control-empty {
+        padding: 18px;
+        text-align: center;
+    }
+
     @media print {
         body {
             background: #ffffff;
@@ -165,179 +305,45 @@
 </section>
 
 {% if relatorio_valido %}
-<section class="stats-grid">
-    <article class="stat-card">
-        <strong>Custo das retiradas</strong>
-        <span>R$ {{ relatorio.totais.custo_retiradas|floatformat:2 }}</span>
-    </article>
-    <article class="stat-card">
-        <strong>Valor de entradas</strong>
-        <span>R$ {{ relatorio.totais.custo_entradas|floatformat:2 }}</span>
-    </article>
-    <article class="stat-card">
-        <strong>Quantidade retirada</strong>
-        <span>{{ relatorio.totais.retiradas }}</span>
-    </article>
-    <article class="stat-card">
-        <strong>Itens movimentados</strong>
-        <span>{{ relatorio.totais.itens_movimentados }}</span>
-    </article>
+{% if relatorio.tabelas_controle %}
+{% for tabela in relatorio.tabelas_controle %}
+<section class="stock-control-sheet">
+    <table class="stock-control-table">
+        <colgroup>
+            <col style="width: 42%;">
+            <col style="width: 18%;">
+            <col style="width: 18%;">
+            <col style="width: 22%;">
+        </colgroup>
+        <thead>
+            <tr class="stock-control-title">
+                <th colspan="4">{{ tabela.titulo }}</th>
+            </tr>
+            <tr class="stock-control-header">
+                <th>Produtos</th>
+                <th>Entradas</th>
+                <th>Saídas</th>
+                <th>Estoque Atual</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for linha in tabela.linhas %}
+            <tr>
+                <td>{{ linha.produto }}</td>
+                <td class="stock-control-number">{{ linha.entradas }}</td>
+                <td class="stock-control-number">{{ linha.saidas }}</td>
+                <td class="stock-control-current">{{ linha.estoque_atual }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </section>
-
-<section class="card">
-    <div class="card-header-simple">
-        <div>
-            <h3>Resumo por produto</h3>
-            {% if data_inicio and data_fim %}
-            <p>{{ data_inicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}</p>
-            {% endif %}
-        </div>
-    </div>
-    {% if relatorio.resumo_por_item %}
-    <div class="report-table-wrap">
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>Produto</th>
-                    <th>Categoria</th>
-                    <th class="text-right">Entradas</th>
-                    <th class="text-right">Retiradas</th>
-                    <th class="text-right">Devolvidas</th>
-                    <th class="text-right">Custo entradas</th>
-                    <th class="text-right">Custo retiradas</th>
-                    <th class="text-right">Saldo periodo</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for linha in relatorio.resumo_por_item %}
-                <tr>
-                    <td>
-                        <strong>{{ linha.item.nome }}</strong>
-                        <div class="muted">Saldo atual: {{ linha.item.quantidade_atual }} {{ linha.item.unidade_medida }}</div>
-                    </td>
-                    <td>{{ linha.item.categoria_nome }}</td>
-                    <td class="text-right">{{ linha.entradas }}</td>
-                    <td class="text-right">{{ linha.retiradas }}</td>
-                    <td class="text-right">{{ linha.devolvidas }}</td>
-                    <td class="text-right">R$ {{ linha.custo_entradas|floatformat:2 }}</td>
-                    <td class="text-right">R$ {{ linha.custo_retiradas|floatformat:2 }}</td>
-                    <td class="text-right">{{ linha.saldo_periodo }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="empty-box">Nenhuma movimentacao encontrada para os filtros selecionados.</div>
-    {% endif %}
+{% endfor %}
+{% else %}
+<section class="stock-control-sheet">
+    <div class="stock-control-empty">Nenhum produto encontrado para os filtros selecionados.</div>
 </section>
-
-<section class="card">
-    <h3>Retiradas por data</h3>
-    {% if relatorio.retiradas_por_data %}
-    <div class="report-table-wrap">
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>Data</th>
-                    <th class="text-right">Movimentos</th>
-                    <th class="text-right">Quantidade retirada</th>
-                    <th class="text-right">Devolvidas</th>
-                    <th class="text-right">Custo retiradas</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for linha in relatorio.retiradas_por_data %}
-                <tr>
-                    <td>{{ linha.data|date:"d/m/Y" }}</td>
-                    <td class="text-right">{{ linha.movimentos }}</td>
-                    <td class="text-right">{{ linha.retiradas }}</td>
-                    <td class="text-right">{{ linha.devolvidas }}</td>
-                    <td class="text-right">R$ {{ linha.custo_retiradas|floatformat:2 }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="empty-box">Nenhuma retirada registrada no periodo.</div>
-    {% endif %}
-</section>
-
-<section class="card">
-    <h3>Comparativo mensal</h3>
-    {% if relatorio.comparativo_mensal %}
-    <div class="report-table-wrap">
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>Mes</th>
-                    <th class="text-right">Entradas</th>
-                    <th class="text-right">Retiradas</th>
-                    <th class="text-right">Custo entradas</th>
-                    <th class="text-right">Custo retiradas</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for linha in relatorio.comparativo_mensal %}
-                <tr>
-                    <td>{{ linha.rotulo }}</td>
-                    <td class="text-right">{{ linha.entradas }}</td>
-                    <td class="text-right">{{ linha.retiradas }}</td>
-                    <td class="text-right">R$ {{ linha.custo_entradas|floatformat:2 }}</td>
-                    <td class="text-right">R$ {{ linha.custo_retiradas|floatformat:2 }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="empty-box">Nenhuma movimentacao para comparar no periodo.</div>
-    {% endif %}
-</section>
-
-<section class="card">
-    <h3>Movimentacoes do periodo</h3>
-    {% if movimentacoes %}
-    <div class="report-table-wrap">
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>Data</th>
-                    <th>Tipo</th>
-                    <th>Produto</th>
-                    <th>Setor</th>
-                    <th class="text-right">Quantidade</th>
-                    <th class="text-right">Devolvida</th>
-                    <th class="text-right">Liquida</th>
-                    <th class="text-right">Custo unitario</th>
-                    <th class="text-right">Valor total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for movimentacao in movimentacoes %}
-                <tr>
-                    <td>{{ movimentacao.data_movimentacao|date:"d/m/Y" }}</td>
-                    <td>{{ movimentacao.get_tipo_display }}</td>
-                    <td>
-                        <strong>{{ movimentacao.item.nome }}</strong>
-                        <div class="muted">{{ movimentacao.observacao|default:"Sem observacao." }}</div>
-                    </td>
-                    <td>{{ movimentacao.setor|default:"-" }}</td>
-                    <td class="text-right">{{ movimentacao.quantidade }}</td>
-                    <td class="text-right">{{ movimentacao.quantidade_devolvida }}</td>
-                    <td class="text-right">{{ movimentacao.quantidade_liquida }}</td>
-                    <td class="text-right">R$ {{ movimentacao.custo_unitario|floatformat:2 }}</td>
-                    <td class="text-right">R$ {{ movimentacao.valor_total|floatformat:2 }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="empty-box">Nenhuma movimentacao encontrada para os filtros selecionados.</div>
-    {% endif %}
-</section>
+{% endif %}
 {% endif %}
 
 <script>

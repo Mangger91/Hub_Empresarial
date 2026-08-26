@@ -1,5 +1,6 @@
 import json
 import math
+import re
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -51,14 +52,118 @@ def _endereco_para_busca(endereco):
     return endereco
 
 
+def _normalizar_espacos(texto):
+    return " ".join(str(texto or "").split())
+
+
+def _sem_duplicar(valores):
+    vistos = set()
+    unicos = []
+    for valor in valores:
+        valor = _normalizar_espacos(valor)
+        chave = valor.casefold()
+        if not valor or chave in vistos:
+            continue
+        vistos.add(chave)
+        unicos.append(valor)
+    return unicos
+
+
+def _logradouro_numero(endereco):
+    endereco = _normalizar_espacos(endereco)
+    padroes = [
+        r"^(?P<logradouro>.+?),\s*(?P<numero>\d+[A-Za-z]?)\b(?P<resto>.*)$",
+        r"^(?P<logradouro>.+?)\s+(?P<numero>\d+[A-Za-z]?)\b(?P<resto>.*)$",
+    ]
+    for padrao in padroes:
+        resultado = re.match(padrao, endereco)
+        if resultado:
+            return (
+                resultado.group("logradouro").strip(" ,"),
+                resultado.group("numero").strip(),
+                resultado.group("resto").strip(" ,"),
+            )
+    return "", "", ""
+
+
+def _parametros_geocoder(limite, **extras):
+    params = {
+        "format": "json",
+        "limit": limite,
+        "addressdetails": 1,
+    }
+    countrycodes = getattr(settings, "ROTA_MOTOBOY_COUNTRYCODES", "").strip()
+    if countrycodes:
+        params["countrycodes"] = countrycodes
+    params.update({chave: valor for chave, valor in extras.items() if valor})
+    return params
+
+
+def _endereco_variantes_busca(endereco):
+    endereco = _normalizar_espacos(endereco)
+    endereco_com_complemento = _endereco_para_busca(endereco)
+    logradouro, numero, resto = _logradouro_numero(endereco)
+    variantes = [endereco_com_complemento, endereco]
+
+    if logradouro and numero:
+        partes_contexto = [
+            resto,
+            getattr(settings, "ROTA_MOTOBOY_CIDADE_PADRAO", ""),
+            getattr(settings, "ROTA_MOTOBOY_ESTADO_PADRAO", ""),
+            getattr(settings, "ROTA_MOTOBOY_PAIS_PADRAO", ""),
+            settings.ROTA_MOTOBOY_COMPLEMENTO_ENDERECO,
+        ]
+        contexto = ", ".join(parte.strip(" ,") for parte in partes_contexto if str(parte or "").strip())
+        variantes.extend(
+            [
+                f"{numero} {logradouro}, {contexto}" if contexto else f"{numero} {logradouro}",
+                f"{logradouro} {numero}, {contexto}" if contexto else f"{logradouro} {numero}",
+                f"{logradouro}, {contexto}" if contexto else logradouro,
+            ]
+        )
+
+    return _sem_duplicar(variantes)
+
+
+def _buscar_geocoder_por_texto(termo, limite):
+    params = urlencode(_parametros_geocoder(limite, q=termo))
+    url = f"{settings.ROTA_MOTOBOY_GEOCODER_URL}?{params}"
+    return _http_json(url)
+
+
+def _buscar_geocoder_estruturado(endereco, limite):
+    logradouro, numero, _resto = _logradouro_numero(endereco)
+    if not (logradouro and numero):
+        return []
+
+    params = _parametros_geocoder(
+        limite,
+        street=f"{numero} {logradouro}",
+        city=getattr(settings, "ROTA_MOTOBOY_CIDADE_PADRAO", ""),
+        state=getattr(settings, "ROTA_MOTOBOY_ESTADO_PADRAO", ""),
+        country=getattr(settings, "ROTA_MOTOBOY_PAIS_PADRAO", ""),
+    )
+    if "city" not in params and "state" not in params and "country" not in params:
+        return []
+
+    url = f"{settings.ROTA_MOTOBOY_GEOCODER_URL}?{urlencode(params)}"
+    return _http_json(url)
+
+
 def geocodificar_endereco(endereco):
-    endereco_busca = _endereco_para_busca(endereco)
-    if not endereco_busca:
+    endereco = _normalizar_espacos(endereco)
+    if not endereco:
         raise RoteirizacaoError("Informe o endereco para calcular a rota.")
 
-    params = urlencode({"format": "json", "limit": 1, "q": endereco_busca})
-    url = f"{settings.ROTA_MOTOBOY_GEOCODER_URL}?{params}"
-    dados = _http_json(url)
+    consultas = [_buscar_geocoder_estruturado(endereco, 1)]
+    consultas.extend(_buscar_geocoder_por_texto(termo, 1) for termo in _endereco_variantes_busca(endereco))
+
+    dados = []
+    for consulta in consultas:
+        if consulta:
+            dados = consulta
+            break
+
     if not dados:
         raise RoteirizacaoError(f"Nao encontramos coordenadas para: {endereco}.")
 
@@ -70,22 +175,25 @@ def geocodificar_endereco(endereco):
 
 
 def buscar_sugestoes_endereco(termo, limite=5):
-    termo_busca = _endereco_para_busca(termo)
-    if len(termo_busca) < 3:
+    termo = _normalizar_espacos(termo)
+    if len(termo) < 3:
         return []
 
-    params = urlencode({"format": "json", "limit": limite, "q": termo_busca})
-    url = f"{settings.ROTA_MOTOBOY_GEOCODER_URL}?{params}"
-    dados = _http_json(url)
-
+    consultas = [_buscar_geocoder_estruturado(termo, limite)]
+    consultas.extend(_buscar_geocoder_por_texto(termo_busca, limite) for termo_busca in _endereco_variantes_busca(termo))
     sugestoes = []
-    for item in dados:
-        nome = item.get("display_name")
-        lat = item.get("lat")
-        lon = item.get("lon")
-        if not (nome and lat and lon):
-            continue
-        sugestoes.append({"nome": nome, "latitude": lat, "longitude": lon})
+    nomes_vistos = set()
+    for dados in consultas:
+        for item in dados:
+            nome = item.get("display_name")
+            lat = item.get("lat")
+            lon = item.get("lon")
+            if not (nome and lat and lon) or nome in nomes_vistos:
+                continue
+            sugestoes.append({"nome": nome, "latitude": lat, "longitude": lon})
+            nomes_vistos.add(nome)
+            if len(sugestoes) >= limite:
+                return sugestoes
     return sugestoes
 
 
@@ -257,9 +365,6 @@ def _zerar_rota_unica(rota, paradas):
 
 
 def otimizar_rota_motoboy(rota):
-    if not rota.endereco_inicio.strip():
-        raise RoteirizacaoError("Informe o local de partida para calcular a rota.")
-
     paradas = list(rota.paradas.exclude(endereco="").order_by("ordem", "id"))
     if not paradas:
         raise RoteirizacaoError("Cadastre ao menos uma parada com endereco.")

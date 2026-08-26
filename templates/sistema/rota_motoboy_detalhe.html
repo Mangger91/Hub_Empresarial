@@ -120,6 +120,16 @@
         font-size: 0.88rem;
         margin-top: 3px;
     }
+
+    .route-info {
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        line-height: 1.55;
+        margin-bottom: 14px;
+        padding: 12px 14px;
+    }
 </style>
 {% endblock %}
 
@@ -176,6 +186,11 @@
     </div>
 
     <h3>Percurso otimizado</h3>
+    {% if not rota.endereco_inicio %}
+    <div class="route-info">
+        Sem local de partida informado. O calculo considera somente a sequencia dos enderecos de coleta ou entrega.
+    </div>
+    {% endif %}
     <div class="list-stack">
         <article class="route-endpoint">
             <strong>Local de partida</strong>

@@ -94,6 +94,15 @@
         color: #dc2626;
         margin-left: 4px;
     }
+
+    .route-info {
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        line-height: 1.55;
+        padding: 12px 14px;
+    }
 </style>
 {% endblock %}
 
@@ -116,6 +125,9 @@
     <form method="post" class="route-builder" data-address-search-url="{% url 'buscar_enderecos_rota' %}" data-company-search-url="{% url 'buscar_empresas_rota' %}">
         {% csrf_token %}
         <h3>Dados da rota</h3>
+        <div class="route-info">
+            Se o local de partida ficar em branco, a rota sera calculada apenas entre os enderecos de coleta ou entrega informados nas paradas.
+        </div>
         <div class="form-grid">
             {% for field in form %}
             <div class="{% if field.name == 'endereco_inicio' %}field-span address-field{% endif %}">
@@ -134,7 +146,7 @@
         <div class="section-line">
             <div>
                 <h3>Paradas da rota</h3>
-                <p>Informe as paradas para a rota. Se quiser, você pode adicionar mais de uma parada antes de salvar.</p>
+                <p>Digite uma rua ou selecione um cliente cadastrado; ao selecionar o cliente, o endereco sera preenchido automaticamente.</p>
             </div>
             <button type="button" class="btn btn-secondary" data-add-stop>Adicionar parada</button>
         </div>

@@ -1,5 +1,6 @@
+from datetime import date
+
 from django import forms
-from django.conf import settings
 
 from sistema.models import EnderecoEmpresaMotoboy, RotaMotoboy, RotaParada
 
@@ -34,11 +35,12 @@ class RotaMotoboyForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["data"].required = True
+        self.fields["data"].required = False
         self.fields["horario_saida"].required = False
-        self.fields["endereco_inicio"].required = True
-        if not self.is_bound and not self.initial.get("endereco_inicio"):
-            self.initial["endereco_inicio"] = settings.ROTA_MOTOBOY_ENDERECO_ESCRITORIO
+        self.fields["endereco_inicio"].required = False
+
+    def clean_data(self):
+        return self.cleaned_data.get("data") or date.today()
 
 
 class RotaParadaForm(forms.ModelForm):
@@ -76,6 +78,29 @@ class RotaParadaForm(forms.ModelForm):
             "observacao": forms.Textarea(attrs={**FORM_CONTROL, "rows": 3}),
             "status_final": forms.Select(attrs=FORM_CONTROL),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["setor"].required = False
+        self.fields["empresa"].required = False
+        self.fields["tipo_servico"].required = False
+        self.fields["endereco"].required = False
+        self.fields["observacao"].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        empresa = (cleaned_data.get("empresa") or "").strip()
+        endereco = (cleaned_data.get("endereco") or "").strip()
+
+        if not empresa and not endereco:
+            raise forms.ValidationError(
+                "Informe um cliente cadastrado ou digite um endereco avulso para a parada."
+            )
+
+        if not empresa and endereco:
+            cleaned_data["empresa"] = "Endereco avulso"
+
+        return cleaned_data
 
 
 class RotaParadaCriacaoForm(RotaParadaForm):

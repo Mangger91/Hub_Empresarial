@@ -17,6 +17,9 @@
         {% endif %}
         {% if permite_edicao %}
         <a href="{% url 'editar_item_estoque' item.pk %}" class="btn btn-secondary">Editar item</a>
+        {% if permite_exclusao %}
+        <a href="{% url 'excluir_item_estoque' item.pk %}" class="btn btn-danger">Excluir item</a>
+        {% endif %}
         <a href="{% url 'movimentar_item_estoque' item.pk %}" class="btn btn-primary">Nova movimentacao</a>
         {% endif %}
     </div>

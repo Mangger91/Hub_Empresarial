@@ -89,6 +89,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Importa somente a aba PROD (sem ENTRADAS e SAIDAS).",
         )
+        parser.add_argument(
+            "--substituir",
+            action="store_true",
+            help="Exclui os registros atuais do Estoque ADM antes de importar os arquivos.",
+        )
 
     def handle(self, *args, **options):
         arquivos = options.get("arquivos") or []
@@ -104,17 +109,26 @@ class Command(BaseCommand):
             raise CommandError("Nenhum arquivo informado ou encontrado para importar.")
 
         resumo_total = {
+            "itens_excluidos": 0,
+            "movimentos_excluidos": 0,
             "itens_criados": 0,
             "itens_atualizados": 0,
             "entradas_criadas": 0,
             "saidas_criadas": 0,
             "movimentos_ignorados": 0,
         }
+        substituicao_aplicada = False
 
         for arquivo in arquivos:
             caminho = Path(arquivo)
             if not caminho.exists():
                 raise CommandError(f"Arquivo nao encontrado: {caminho}")
+
+            if options["substituir"] and not substituicao_aplicada:
+                movimentos_excluidos, itens_excluidos = self.substituir_estoque_adm()
+                resumo_total["movimentos_excluidos"] = movimentos_excluidos
+                resumo_total["itens_excluidos"] = itens_excluidos
+                substituicao_aplicada = True
 
             categoria = (
                 ItemEstoque.Categoria.COPA
@@ -126,7 +140,7 @@ class Command(BaseCommand):
                 categoria=categoria,
                 somente_cadastro=options["somente_cadastro"],
             )
-            for chave in resumo_total:
+            for chave in resumo:
                 resumo_total[chave] += resumo[chave]
 
             self.stdout.write(
@@ -141,6 +155,13 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Resumo final da importacao:"))
         for chave, valor in resumo_total.items():
             self.stdout.write(f" - {chave}: {valor}")
+
+    @transaction.atomic
+    def substituir_estoque_adm(self):
+        itens = ItemEstoque.objects.filter(area=ItemEstoque.Area.ADMINISTRATIVO)
+        movimentos_excluidos, _ = MovimentacaoEstoque.objects.filter(item__in=itens).delete()
+        itens_excluidos, _ = itens.delete()
+        return movimentos_excluidos, itens_excluidos
 
     @transaction.atomic
     def importar_arquivo(self, caminho, categoria, somente_cadastro=False):
@@ -167,6 +188,14 @@ class Command(BaseCommand):
         col_unidade = colunas_prod.get("UNIDADEDEMEDIDA")
         col_minimo = colunas_prod.get("ESTOQUEMINIMO")
         col_custo = colunas_prod.get("CUSTOUNITARIO")
+        col_saldo = (
+            colunas_prod.get("SALDO")
+            or colunas_prod.get("SALDOATUAL")
+            or colunas_prod.get("ESTOQUEATUAL")
+            or colunas_prod.get("QUANTIDADEATUAL")
+            or colunas_prod.get("QUANTIDADE")
+            or colunas_prod.get("QTD")
+        )
 
         if not col_nome:
             raise CommandError(f"Nao foi possivel mapear colunas da aba PROD em {caminho.name}.")
@@ -192,6 +221,9 @@ class Command(BaseCommand):
             custo_unitario = (
                 decimal_moeda(sheet_prod.cell(row=row_idx, column=col_custo).value) if col_custo else Decimal("0")
             ) or Decimal("0")
+            saldo_atual = (
+                inteiro_positivo(sheet_prod.cell(row=row_idx, column=col_saldo).value) if col_saldo else None
+            )
 
             item, criado = ItemEstoque.objects.get_or_create(
                 area=ItemEstoque.Area.ADMINISTRATIVO,
@@ -235,6 +267,23 @@ class Command(BaseCommand):
                 if atualizado:
                     item.save()
                     resumo["itens_atualizados"] += 1
+
+            if saldo_atual is not None and not item.movimentacoes.exists():
+                if saldo_atual > 0:
+                    MovimentacaoEstoque.objects.create(
+                        item=item,
+                        data_movimentacao=date.today(),
+                        tipo=MovimentacaoEstoque.TipoMovimento.ENTRADA,
+                        quantidade=saldo_atual,
+                        quantidade_devolvida=0,
+                        custo_unitario=item.custo_unitario or Decimal("0"),
+                        observacao=f"Saldo inicial importado de {caminho.name} - PROD",
+                        origem_externa=f"{caminho.name}|PROD|SALDO|{row_idx}",
+                    )
+                    resumo["entradas_criadas"] += 1
+                else:
+                    item.quantidade_atual = 0
+                    item.save(update_fields=["quantidade_atual", "atualizado_em"])
 
             itens_por_nome[nome.upper()] = item
 

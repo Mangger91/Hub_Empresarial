@@ -559,6 +559,43 @@ class EstoqueTests(TestCase):
         self.assertEqual(ajuste.tipo, MovimentacaoEstoque.TipoMovimento.SAIDA)
         self.assertEqual(ajuste.quantidade, 6)
 
+    def test_administrador_exclui_item_de_estoque(self):
+        MovimentacaoEstoque.objects.create(
+            item=self.item,
+            tipo=MovimentacaoEstoque.TipoMovimento.ENTRADA,
+            quantidade=10,
+            responsavel=self.usuario,
+        )
+
+        self.client.login(username="estoque@empresa.com.br", password="Senha12345")
+        resposta_lista = self.client.get(reverse("estoque_ti"))
+        self.assertContains(resposta_lista, "Excluir")
+
+        resposta_confirmacao = self.client.get(reverse("excluir_item_estoque", args=[self.item.pk]))
+        self.assertContains(resposta_confirmacao, "Confirmar exclusao")
+
+        resposta = self.client.post(reverse("excluir_item_estoque", args=[self.item.pk]))
+
+        self.assertRedirects(resposta, reverse("estoque_ti"))
+        self.assertFalse(ItemEstoque.objects.filter(pk=self.item.pk).exists())
+        self.assertEqual(MovimentacaoEstoque.objects.filter(item_id=self.item.pk).count(), 0)
+
+    def test_supervisor_nao_ve_botao_excluir_item(self):
+        supervisor = User.objects.create_user(
+            username="supervisor.estoque",
+            email="supervisor.estoque@empresa.com.br",
+            password="Senha12345",
+        )
+        perfil, _ = PerfilUsuario.objects.get_or_create(usuario=supervisor)
+        perfil.papel_estoque_ti = "SUPERVISOR"
+        perfil.save()
+
+        self.client.login(username=supervisor.email, password="Senha12345")
+        resposta = self.client.get(reverse("estoque_ti"))
+
+        self.assertContains(resposta, "Editar")
+        self.assertNotContains(resposta, "Excluir")
+
     def test_relatorio_mensal_calcula_custo_retiradas_por_produto(self):
         MovimentacaoEstoque.objects.create(
             item=self.item,
@@ -914,6 +951,43 @@ class RotaMotoboyTests(TestCase):
         self.assertIsNone(rota.horario_saida)
         self.assertEqual(rota.paradas.count(), 1)
 
+    def test_criar_rota_sem_local_de_partida(self):
+        self.client.login(username="rota@empresa.com.br", password="Senha12345")
+        dados = self.dados_rota()
+        dados["endereco_inicio"] = ""
+
+        with patch("sistema.modulos.rota_motoboy.views.otimizar_rota_motoboy") as otimizar:
+            resposta = self.client.post(reverse("rota_motoboy_nova"), dados)
+
+        self.assertEqual(resposta.status_code, 302)
+        rota = RotaMotoboy.objects.get()
+        self.assertEqual(rota.endereco_inicio, "")
+        self.assertEqual(rota.paradas.count(), 1)
+        otimizar.assert_called_once()
+
+    def test_criar_parada_por_endereco_avulso_sem_cliente(self):
+        self.client.login(username="rota@empresa.com.br", password="Senha12345")
+        dados = self.dados_rota(
+            [
+                {
+                    "setor": "",
+                    "empresa": "",
+                    "tipo_servico": "ENTREGA",
+                    "endereco": "Rua Avulsa, 200",
+                    "observacao": "",
+                }
+            ]
+        )
+        dados["endereco_inicio"] = ""
+
+        with patch("sistema.modulos.rota_motoboy.views.otimizar_rota_motoboy"):
+            resposta = self.client.post(reverse("rota_motoboy_nova"), dados)
+
+        self.assertEqual(resposta.status_code, 302)
+        parada = RotaMotoboy.objects.get().paradas.get()
+        self.assertEqual(parada.empresa, "Endereco avulso")
+        self.assertEqual(parada.endereco, "Rua Avulsa, 200")
+
     def test_editar_rota_altera_dados_e_paradas(self):
         rota = RotaMotoboy.objects.create(
             data=date(2026, 4, 10),
@@ -1045,6 +1119,45 @@ class RotaMotoboyTests(TestCase):
         self.assertEqual(rota.latitude_destino, Decimal("0.050000"))
         self.assertEqual(rota.longitude_destino, Decimal("0.050000"))
         self.assertIsNotNone(rota.rota_otimizada_em)
+
+    def test_otimiza_rota_sem_partida_usando_apenas_paradas(self):
+        from sistema.modulos.rota_motoboy.roteirizacao import otimizar_rota_motoboy
+
+        rota = RotaMotoboy.objects.create(
+            data=date(2026, 4, 10),
+            titulo="Rota sem partida",
+            endereco_inicio="",
+            endereco_destino="",
+        )
+        rota.paradas.create(ordem=1, empresa="Empresa A", tipo_servico="COLETA", endereco="Empresa A")
+        rota.paradas.create(ordem=2, empresa="Empresa B", tipo_servico="ENTREGA", endereco="Empresa B")
+
+        coordenadas = {
+            "Empresa A": {"latitude": Decimal("0.010000"), "longitude": Decimal("0.010000")},
+            "Empresa B": {"latitude": Decimal("0.020000"), "longitude": Decimal("0.020000")},
+        }
+        viagem = {
+            "code": "Ok",
+            "trips": [{"distance": 1500, "duration": 600, "legs": [{"distance": 1500, "duration": 600}]}],
+            "waypoints": [{"waypoint_index": 0}, {"waypoint_index": 1}],
+        }
+
+        with patch(
+            "sistema.modulos.rota_motoboy.roteirizacao.geocodificar_endereco",
+            side_effect=lambda endereco: coordenadas[endereco],
+        ), patch(
+            "sistema.modulos.rota_motoboy.roteirizacao.obter_viagem_otimizada",
+            return_value=viagem,
+        ):
+            otimizar_rota_motoboy(rota)
+
+        rota.refresh_from_db()
+        paradas = list(rota.paradas.order_by("ordem"))
+        self.assertEqual(paradas[0].distancia_km, Decimal("0.00"))
+        self.assertEqual(paradas[1].distancia_km, Decimal("1.50"))
+        self.assertEqual(rota.distancia_total_km, Decimal("1.50"))
+        self.assertIsNone(rota.latitude_inicio)
+        self.assertIsNone(rota.longitude_inicio)
 
     def test_mes_exibe_historico_e_total_apenas_de_rotas_abertas(self):
         rota_aberta = RotaMotoboy.objects.create(

@@ -295,6 +295,9 @@
         <a href="{% url 'relatorio_estoque' modulo_codigo %}" class="btn btn-secondary">Relatorio e PDF</a>
         <a href="{% url 'categorias_estoque' modulo_codigo %}" class="btn btn-secondary">Categorias</a>
         {% endif %}
+        {% if permite_importacao_planilha %}
+        <a href="{% url 'importar_estoque_adm' %}" class="btn btn-secondary">Importar planilhas</a>
+        {% endif %}
         {% if mostrar_acoes %}
         <a href="{% url 'novo_item_estoque' modulo_codigo %}" class="btn btn-primary">Novo item</a>
         {% endif %}
@@ -455,6 +458,9 @@
                             <a href="{% url 'detalhe_item_estoque' item.pk %}" class="btn btn-secondary">Detalhes</a>
                             {% if mostrar_acoes %}
                             <a href="{% url 'editar_item_estoque' item.pk %}" class="btn btn-secondary stock-icon-action" title="Editar item" aria-label="Editar {{ item.nome }}">&#9998;</a>
+                            {% if permite_exclusao %}
+                            <a href="{% url 'excluir_item_estoque' item.pk %}" class="btn btn-danger stock-icon-action" title="Excluir item" aria-label="Excluir {{ item.nome }}">&#128465;</a>
+                            {% endif %}
                             <a href="{% url 'movimentar_item_estoque' item.pk %}" class="btn btn-primary">Movimentar</a>
                             {% endif %}
                         </div>

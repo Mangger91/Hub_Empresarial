@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Importar Estoque ADM{% endblock %}
+{% block page_title %}Importar Estoque ADM{% endblock %}
+
+{% block extra_css %}
+<style>
+    .import-warning {
+        border: 1px solid #fed7aa;
+        border-radius: 8px;
+        background: #fff7ed;
+        color: #9a3412;
+        line-height: 1.55;
+        padding: 12px 14px;
+    }
+
+    .import-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="module-header">
+    <div>
+        <span class="section-kicker">{{ papel_modulo_label }}</span>
+        <h2>{{ modulo_titulo }}</h2>
+        <p>{{ modulo_descricao }}</p>
+    </div>
+    <a href="{% url rota_estoque %}" class="btn btn-secondary">Voltar</a>
+</section>
+
+{% if acesso_negado %}
+<div class="alert-banner">
+    Voce nao possui permissao para acessar essa area, contate o administrador.
+</div>
+{% else %}
+<section class="card form-card">
+    <form method="post" enctype="multipart/form-data" class="form-stack">
+        {% csrf_token %}
+        <div class="import-warning">
+            Ao importar, todos os itens e movimentacoes atuais do Estoque ADM serao excluidos antes de carregar as planilhas enviadas.
+        </div>
+
+        {% if form.non_field_errors %}
+        <div class="erro">{{ form.non_field_errors|join:", " }}</div>
+        {% endif %}
+
+        <div class="form-grid">
+            <div>
+                <label for="{{ form.arquivo_copa.id_for_label }}">{{ form.arquivo_copa.label }}</label>
+                {{ form.arquivo_copa }}
+                {% if form.arquivo_copa.errors %}<div class="erro">{{ form.arquivo_copa.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label for="{{ form.arquivo_expediente.id_for_label }}">{{ form.arquivo_expediente.label }}</label>
+                {{ form.arquivo_expediente }}
+                {% if form.arquivo_expediente.errors %}<div class="erro">{{ form.arquivo_expediente.errors|join:", " }}</div>{% endif %}
+            </div>
+        </div>
+
+        <div class="import-actions">
+            <button type="submit" class="btn btn-primary">Substituir estoque</button>
+            <a href="{% url rota_estoque %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

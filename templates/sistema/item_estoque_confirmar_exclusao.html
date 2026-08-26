@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Excluir Item{% endblock %}
+{% block page_title %}Excluir Item{% endblock %}
+
+{% block content %}
+<section class="module-header">
+    <div>
+        <span class="section-kicker">{{ papel_modulo_label }}</span>
+        <h2>Excluir {{ item.nome }}</h2>
+        <p>{{ modulo_descricao }}</p>
+    </div>
+    <a href="{% url 'detalhe_item_estoque' item.pk %}" class="btn btn-secondary">Voltar</a>
+</section>
+
+{% if acesso_negado %}
+<div class="alert-banner">
+    Voce nao possui permissao para acessar essa area, contate o administrador.
+</div>
+{% else %}
+<section class="card">
+    <h3>Confirmar exclusao</h3>
+    <p>
+        Esta acao remove o item do estoque e tambem exclui
+        {{ movimentacoes_vinculadas }} movimentacao{% if movimentacoes_vinculadas != 1 %}es{% endif %}
+        vinculada{% if movimentacoes_vinculadas != 1 %}s{% endif %}.
+    </p>
+    <form method="post" class="form-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Excluir item</button>
+        <a href="{% url 'detalhe_item_estoque' item.pk %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import parse_qsl, unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -31,6 +32,53 @@ def get_bool_env(name, default=False):
 def get_list_env(name, default=""):
     value = os.getenv(name, default)
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def get_int_env(name, default):
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return int(value)
+
+
+def get_float_env(name, default):
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return float(value)
+
+
+def get_str_env(name, default=""):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value or default
+
+
+def postgres_database_from_url(database_url):
+    parsed = urlparse(database_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_URL deve usar postgres:// ou postgresql://.")
+
+    database_name = unquote(parsed.path.lstrip("/"))
+    if not database_name:
+        raise ValueError("DATABASE_URL precisa informar o nome do banco.")
+
+    config = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": database_name,
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or ""),
+    }
+
+    options = {key: value for key, value in parse_qsl(parsed.query, keep_blank_values=True)}
+    if options:
+        config["OPTIONS"] = options
+
+    return config
 
 
 load_env_file(BASE_DIR / ".env")
@@ -83,13 +131,6 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.getenv("DJANGO_SQLITE_PATH", str(BASE_DIR / "db.sqlite3")),
-    }
-}
-
 LANGUAGE_CODE = "pt-br"
 TIME_ZONE = "America/Sao_Paulo"
 USE_I18N = True
@@ -126,21 +167,22 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = os.getenv("DJANGO_EMAIL_HOST", "")
-EMAIL_PORT = int(os.getenv("DJANGO_EMAIL_PORT", "587"))
+EMAIL_HOST = get_str_env("DJANGO_EMAIL_HOST", "")
+EMAIL_PORT = get_int_env("DJANGO_EMAIL_PORT", 587)
 EMAIL_USE_TLS = get_bool_env("DJANGO_EMAIL_USE_TLS", True)
 EMAIL_USE_SSL = get_bool_env("DJANGO_EMAIL_USE_SSL", False)
-EMAIL_HOST_USER = os.getenv("DJANGO_EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("DJANGO_EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL = os.getenv("DJANGO_DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+EMAIL_TIMEOUT = get_float_env("DJANGO_EMAIL_TIMEOUT", 20)
+EMAIL_HOST_USER = get_str_env("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = get_str_env("DJANGO_EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = get_str_env("DJANGO_DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
-CALENDAR_INVITE_FROM_EMAIL = os.getenv("DJANGO_CALENDAR_INVITE_FROM_EMAIL", DEFAULT_FROM_EMAIL)
-CALENDAR_REPLY_TO_EMAIL = os.getenv("DJANGO_CALENDAR_REPLY_TO_EMAIL", DEFAULT_FROM_EMAIL)
-CALENDAR_ORGANIZER_EMAIL = os.getenv("DJANGO_CALENDAR_ORGANIZER_EMAIL", CALENDAR_INVITE_FROM_EMAIL)
-CALENDAR_ORGANIZER_NAME = os.getenv("DJANGO_CALENDAR_ORGANIZER_NAME", "Agenda de Reuniões")
-WHATSAPP_AGENDA_WEBHOOK_URL = os.getenv("DJANGO_WHATSAPP_AGENDA_WEBHOOK_URL", "")
-WHATSAPP_AGENDA_TOKEN = os.getenv("DJANGO_WHATSAPP_AGENDA_TOKEN", "")
-WHATSAPP_AGENDA_REQUEST_TIMEOUT = float(os.getenv("DJANGO_WHATSAPP_AGENDA_REQUEST_TIMEOUT", "10"))
+CALENDAR_INVITE_FROM_EMAIL = get_str_env("DJANGO_CALENDAR_INVITE_FROM_EMAIL", DEFAULT_FROM_EMAIL)
+CALENDAR_REPLY_TO_EMAIL = get_str_env("DJANGO_CALENDAR_REPLY_TO_EMAIL", DEFAULT_FROM_EMAIL)
+CALENDAR_ORGANIZER_EMAIL = get_str_env("DJANGO_CALENDAR_ORGANIZER_EMAIL", CALENDAR_INVITE_FROM_EMAIL)
+CALENDAR_ORGANIZER_NAME = get_str_env("DJANGO_CALENDAR_ORGANIZER_NAME", "Agenda de Reuniões")
+WHATSAPP_AGENDA_WEBHOOK_URL = get_str_env("DJANGO_WHATSAPP_AGENDA_WEBHOOK_URL", "")
+WHATSAPP_AGENDA_TOKEN = get_str_env("DJANGO_WHATSAPP_AGENDA_TOKEN", "")
+WHATSAPP_AGENDA_REQUEST_TIMEOUT = get_float_env("DJANGO_WHATSAPP_AGENDA_REQUEST_TIMEOUT", 10)
 
 ROTA_MOTOBOY_GEOCODER_URL = os.getenv(
     "DJANGO_ROTA_MOTOBOY_GEOCODER_URL",
@@ -156,7 +198,11 @@ ROTA_MOTOBOY_USER_AGENT = os.getenv(
 )
 ROTA_MOTOBOY_ENDERECO_ESCRITORIO = os.getenv("DJANGO_ROTA_MOTOBOY_ENDERECO_ESCRITORIO", "")
 ROTA_MOTOBOY_COMPLEMENTO_ENDERECO = os.getenv("DJANGO_ROTA_MOTOBOY_COMPLEMENTO_ENDERECO", "")
-ROTA_MOTOBOY_REQUEST_TIMEOUT = float(os.getenv("DJANGO_ROTA_MOTOBOY_REQUEST_TIMEOUT", "12"))
+ROTA_MOTOBOY_CIDADE_PADRAO = get_str_env("DJANGO_ROTA_MOTOBOY_CIDADE_PADRAO", "")
+ROTA_MOTOBOY_ESTADO_PADRAO = get_str_env("DJANGO_ROTA_MOTOBOY_ESTADO_PADRAO", "")
+ROTA_MOTOBOY_PAIS_PADRAO = get_str_env("DJANGO_ROTA_MOTOBOY_PAIS_PADRAO", "Brasil")
+ROTA_MOTOBOY_COUNTRYCODES = get_str_env("DJANGO_ROTA_MOTOBOY_COUNTRYCODES", "br")
+ROTA_MOTOBOY_REQUEST_TIMEOUT = get_float_env("DJANGO_ROTA_MOTOBOY_REQUEST_TIMEOUT", 12)
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_CONTENT_TYPE_NOSNIFF = True

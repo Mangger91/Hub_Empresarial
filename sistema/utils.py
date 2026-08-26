@@ -151,6 +151,20 @@ def _anexar_assinatura_inline(email):
     email.attach(imagem)
 
 
+def _remetente_calendario():
+    email = (settings.CALENDAR_INVITE_FROM_EMAIL or settings.DEFAULT_FROM_EMAIL or "").strip()
+    if not email:
+        raise RuntimeError(
+            "remetente de e-mail nao configurado; defina DJANGO_DEFAULT_FROM_EMAIL ou DJANGO_CALENDAR_INVITE_FROM_EMAIL"
+        )
+    return formataddr((settings.CALENDAR_ORGANIZER_NAME, email))
+
+
+def _reply_to_calendario():
+    email = (settings.CALENDAR_REPLY_TO_EMAIL or settings.DEFAULT_FROM_EMAIL or "").strip()
+    return [email] if email else []
+
+
 def enviar_email_reuniao(reuniao, tipo="criacao"):
     participantes = list(reuniao.participantes.all())
     emails = [participante.email for participante in participantes if participante.email]
@@ -292,9 +306,9 @@ def enviar_email_reuniao(reuniao, tipo="criacao"):
     email = EmailMultiAlternatives(
         subject=assunto,
         body=mensagem_texto,
-        from_email=formataddr((settings.CALENDAR_ORGANIZER_NAME, settings.CALENDAR_INVITE_FROM_EMAIL)),
+        from_email=_remetente_calendario(),
         to=emails,
-        reply_to=[settings.CALENDAR_REPLY_TO_EMAIL],
+        reply_to=_reply_to_calendario(),
     )
     email.attach_alternative(mensagem_html, "text/html")
 
@@ -480,9 +494,9 @@ def enviar_email_reuniao_finalizada(reuniao):
     email = EmailMultiAlternatives(
         subject=assunto,
         body=mensagem_texto,
-        from_email=formataddr((settings.CALENDAR_ORGANIZER_NAME, settings.CALENDAR_INVITE_FROM_EMAIL)),
+        from_email=_remetente_calendario(),
         to=[email_criador],
-        reply_to=[settings.CALENDAR_REPLY_TO_EMAIL],
+        reply_to=_reply_to_calendario(),
     )
     email.attach_alternative(mensagem_html, "text/html")
     _anexar_assinatura_inline(email)

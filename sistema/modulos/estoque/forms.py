@@ -292,3 +292,22 @@ class RelatorioEstoqueFiltroForm(forms.Form):
             cleaned_data["setor"] = cleaned_data["setor"].strip()
 
         return cleaned_data
+
+
+class ImportarEstoquePlanilhasForm(forms.Form):
+    arquivo_copa = forms.FileField(
+        label="Planilha de Copa",
+        required=False,
+        widget=forms.FileInput(attrs={**FORM_CONTROL, "accept": ".xlsx,.xlsm"}),
+    )
+    arquivo_expediente = forms.FileField(
+        label="Planilha de Material de Expediente",
+        required=False,
+        widget=forms.FileInput(attrs={**FORM_CONTROL, "accept": ".xlsx,.xlsm"}),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not cleaned_data.get("arquivo_copa") and not cleaned_data.get("arquivo_expediente"):
+            raise forms.ValidationError("Envie ao menos uma planilha para importar.")
+        return cleaned_data

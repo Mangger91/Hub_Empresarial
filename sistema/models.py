@@ -608,7 +608,7 @@ class RotaParada(models.Model):
     )
     ordem = models.PositiveIntegerField(default=1)
     setor = models.CharField(max_length=80, blank=True)
-    empresa = models.CharField(max_length=140)
+    empresa = models.CharField(max_length=140, blank=True)
     horario_previsto = models.TimeField(null=True, blank=True)
     tipo_servico = models.CharField(
         max_length=10,
