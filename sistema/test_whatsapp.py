@@ -254,6 +254,37 @@ class ReuniaoWhatsAppTests(TestCase):
         enviar_mock.assert_called_once()
 
     @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
+    def test_whatsapp_do_selecionado_e_editado_na_propria_linha(self, enviar_mock):
+        enviar_mock.return_value = ResultadoEnvioWhatsApp(
+            sucesso=True,
+            status_http=200,
+            mensagem_id="wamid.teste-inline",
+        )
+        participante = Participante.objects.create(
+            nome="Joao",
+            email="joao@example.com",
+        )
+        dados = self.dados_reuniao([participante])
+        dados[f"participante_whatsapp_{participante.pk}"] = "41933332222"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resposta = self.client.post(reverse("nova_reuniao"), dados)
+
+        participante.refresh_from_db()
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(participante.whatsapp, "5541933332222")
+        enviar_mock.assert_called_once_with(
+            "5541933332222",
+            [
+                "Joao",
+                (timezone.localdate() + timedelta(days=2)).strftime("%d/%m/%Y"),
+                "09:00 as 10:00",
+                "Reuniao de planejamento",
+                "Segundo andar",
+            ],
+        )
+
+    @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
     def test_edicao_da_reuniao_nao_dispara_whatsapp(self, enviar_mock):
         participante = Participante.objects.create(
             nome="Gabriela",

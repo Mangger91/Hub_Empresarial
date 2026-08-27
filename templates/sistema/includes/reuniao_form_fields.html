@@ -77,9 +77,8 @@
     }
 
     .participant-chip-list {
-        display: flex;
+        display: grid;
         gap: 8px;
-        flex-wrap: wrap;
         min-height: 44px;
         padding: 10px;
         border: 1px solid var(--border);
@@ -87,15 +86,11 @@
         background: #f8fafc;
     }
 
-    .participant-email-summary {
-        max-width: 620px;
-    }
-
     .participant-chip {
-        display: inline-flex;
+        display: grid;
+        grid-template-columns: minmax(180px, 1fr) minmax(190px, 0.7fr) 32px;
         align-items: center;
         gap: 10px;
-        max-width: 360px;
         border: 1px solid var(--border-strong);
         border-radius: 8px;
         background: #fff;
@@ -113,6 +108,23 @@
         white-space: nowrap;
     }
 
+    .participant-phone-field {
+        display: grid;
+        gap: 3px;
+    }
+
+    .participant-phone-field span {
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .participant-phone-input {
+        min-height: 34px;
+        padding: 6px 9px;
+    }
+
     .participant-remove {
         width: 28px;
         height: 28px;
@@ -127,6 +139,49 @@
 
     .participant-hidden-fields {
         display: none;
+    }
+
+    .participant-mode-switch {
+        display: inline-grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 3px;
+        margin: 14px 0;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #edf2f7;
+    }
+
+    .participant-mode-button {
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        padding: 8px 12px;
+        font-weight: 800;
+    }
+
+    .participant-mode-button.is-active {
+        background: #fff;
+        color: var(--accent-strong);
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+    }
+
+    @media (max-width: 720px) {
+        .participant-chip {
+            grid-template-columns: minmax(0, 1fr) 32px;
+        }
+
+        .participant-phone-field {
+            grid-column: 1 / -1;
+            grid-row: 2;
+        }
+
+        .participant-remove {
+            grid-column: 2;
+            grid-row: 1;
+        }
     }
 </style>
 
@@ -172,67 +227,63 @@
     <div class="section-line">
         <div>
             <h3>Participantes</h3>
-            <p>Selecione contatos existentes ou cadastre um participante com e-mail e WhatsApp.</p>
+            <p>Selecione quem participara e confirme o WhatsApp antes de salvar.</p>
         </div>
     </div>
 
-    <div class="participant-picker" data-participant-picker data-search-url="{% url 'buscar_participantes' %}">
-        <div class="participant-search-row">
-            <input
-                type="search"
-                class="form-control participant-search-input"
-                data-participant-search
-                placeholder="Clique ou digite nome/e-mail do participante"
-                autocomplete="off"
-            >
-            <div class="participant-results" data-participant-results></div>
-        </div>
-
-        <div class="participant-email-summary">
-            <label for="participantes-email-resumo">E-mails selecionados</label>
-            <input
-                type="text"
-                id="participantes-email-resumo"
-                class="form-control"
-                data-participant-email-summary
-                placeholder="email@empresa.com.br; proximo@empresa.com.br;"
-                readonly
-            >
-        </div>
-
-        <div class="participant-selected-header">
-            <strong>Selecionados</strong>
-            <span class="participant-count" data-participant-count>Nenhum participante selecionado</span>
-        </div>
-
-        <div class="participant-chip-list" data-participant-selected>
-            <div class="participant-empty" data-participant-empty>Nenhum participante selecionado.</div>
-        </div>
-
-        <div class="participant-hidden-fields" data-participant-hidden></div>
+    <div class="participant-mode-switch" role="tablist" aria-label="Modo de participante">
+        <button type="button" class="participant-mode-button is-active" data-participant-mode="existing" role="tab" aria-selected="true">Selecionar cadastrados</button>
+        <button type="button" class="participant-mode-button" data-participant-mode="new" role="tab" aria-selected="false">Cadastrar novo</button>
     </div>
-    {% if form.participantes.errors %}<div class="erro">{{ form.participantes.errors|join:", " }}</div>{% endif %}
 
-    <div class="participant-contact-heading">
-        <strong>Cadastrar ou atualizar participante</strong>
-        <small>Se o e-mail ja existir, o WhatsApp informado sera atualizado nesse contato.</small>
+    <div data-participant-mode-panel="existing">
+        <div class="participant-picker" data-participant-picker data-search-url="{% url 'buscar_participantes' %}">
+            <div class="participant-search-row">
+                <input
+                    type="search"
+                    class="form-control participant-search-input"
+                    data-participant-search
+                    placeholder="Busque por nome ou e-mail"
+                    autocomplete="off"
+                >
+                <div class="participant-results" data-participant-results></div>
+            </div>
+
+            <div class="participant-selected-header">
+                <strong>Selecionados</strong>
+                <span class="participant-count" data-participant-count>Nenhum participante selecionado</span>
+            </div>
+
+            <div class="participant-chip-list" data-participant-selected>
+                <div class="participant-empty" data-participant-empty>Nenhum participante selecionado.</div>
+            </div>
+
+            <div class="participant-hidden-fields" data-participant-hidden></div>
+        </div>
+        {% if form.participantes.errors %}<div class="erro">{{ form.participantes.errors|join:", " }}</div>{% endif %}
     </div>
-    <div class="new-participant-panel">
-        <div>
-            <label for="{{ form.novo_participante_nome.id_for_label }}">{{ form.novo_participante_nome.label }}</label>
-            {{ form.novo_participante_nome }}
-            {% if form.novo_participante_nome.errors %}<div class="erro">{{ form.novo_participante_nome.errors|join:", " }}</div>{% endif %}
+
+    <div class="is-hidden" data-participant-mode-panel="new">
+        <div class="participant-contact-heading">
+            <strong>Novo participante</strong>
+            <small>O WhatsApp e opcional e recebe automaticamente o codigo +55.</small>
         </div>
-        <div>
-            <label for="{{ form.novo_participante_email.id_for_label }}">{{ form.novo_participante_email.label }}</label>
-            {{ form.novo_participante_email }}
-            {% if form.novo_participante_email.errors %}<div class="erro">{{ form.novo_participante_email.errors|join:", " }}</div>{% endif %}
-        </div>
-        <div>
-            <label for="{{ form.novo_participante_whatsapp.id_for_label }}">{{ form.novo_participante_whatsapp.label }}</label>
-            {{ form.novo_participante_whatsapp }}
-            {% if form.novo_participante_whatsapp.help_text %}<small>{{ form.novo_participante_whatsapp.help_text }}</small>{% endif %}
-            {% if form.novo_participante_whatsapp.errors %}<div class="erro">{{ form.novo_participante_whatsapp.errors|join:", " }}</div>{% endif %}
+        <div class="new-participant-panel">
+            <div>
+                <label for="{{ form.novo_participante_nome.id_for_label }}">{{ form.novo_participante_nome.label }}</label>
+                {{ form.novo_participante_nome }}
+                {% if form.novo_participante_nome.errors %}<div class="erro">{{ form.novo_participante_nome.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label for="{{ form.novo_participante_email.id_for_label }}">{{ form.novo_participante_email.label }}</label>
+                {{ form.novo_participante_email }}
+                {% if form.novo_participante_email.errors %}<div class="erro">{{ form.novo_participante_email.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label for="{{ form.novo_participante_whatsapp.id_for_label }}">{{ form.novo_participante_whatsapp.label }}</label>
+                {{ form.novo_participante_whatsapp }}
+                {% if form.novo_participante_whatsapp.errors %}<div class="erro">{{ form.novo_participante_whatsapp.errors|join:", " }}</div>{% endif %}
+            </div>
         </div>
     </div>
 </section>
@@ -248,10 +299,22 @@ document.addEventListener("DOMContentLoaded", function () {
     const hiddenFields = document.querySelector("[data-participant-hidden]");
     const emptyState = document.querySelector("[data-participant-empty]");
     const countLabel = document.querySelector("[data-participant-count]");
-    const emailSummary = document.querySelector("[data-participant-email-summary]");
     const initialData = document.getElementById("participantes-selecionados-data");
+    const modeButtons = document.querySelectorAll("[data-participant-mode]");
+    const modePanels = document.querySelectorAll("[data-participant-mode-panel]");
     const selected = new Map();
     let searchTimer = null;
+
+    function setParticipantMode(mode) {
+        modeButtons.forEach(function (button) {
+            const active = button.dataset.participantMode === mode;
+            button.classList.toggle("is-active", active);
+            button.setAttribute("aria-selected", String(active));
+        });
+        modePanels.forEach(function (panel) {
+            panel.classList.toggle("is-hidden", panel.dataset.participantModePanel !== mode);
+        });
+    }
 
     function closeResults() {
         if (results) {
@@ -269,14 +332,6 @@ document.addEventListener("DOMContentLoaded", function () {
         hiddenFields.innerHTML = "";
 
         const participants = Array.from(selected.values());
-        const emails = participants.map(function (participant) {
-            return participant.email;
-        }).filter(Boolean);
-
-        if (emailSummary) {
-            emailSummary.value = emails.length ? emails.join("; ") + ";" : "";
-        }
-
         emptyState.hidden = participants.length > 0;
         countLabel.textContent = participants.length
             ? participants.length + " participante" + (participants.length > 1 ? "s" : "") + " selecionado" + (participants.length > 1 ? "s" : "")
@@ -297,13 +352,20 @@ document.addEventListener("DOMContentLoaded", function () {
                     <strong></strong>
                     <span></span>
                 </div>
+                <label class="participant-phone-field">
+                    <span>WhatsApp</span>
+                    <input type="tel" class="form-control participant-phone-input" inputmode="tel" placeholder="DDD + numero">
+                </label>
                 <button type="button" class="participant-remove" aria-label="Remover participante">x</button>
             `;
             chip.querySelector("strong").textContent = participant.nome;
-            chip.querySelector("span").textContent = [
-                participant.email || "Sem e-mail",
-                participant.whatsapp ? "WhatsApp " + participant.whatsapp : ""
-            ].filter(Boolean).join(" | ");
+            chip.querySelector(".participant-chip-text span").textContent = participant.email || "Sem e-mail";
+            const phoneInput = chip.querySelector(".participant-phone-input");
+            phoneInput.name = "participante_whatsapp_" + participant.id;
+            phoneInput.value = participant.whatsapp || "";
+            phoneInput.addEventListener("input", function () {
+                participant.whatsapp = phoneInput.value;
+            });
             chip.querySelector("button").addEventListener("click", function () {
                 selected.delete(String(participant.id));
                 renderSelected();
@@ -345,7 +407,10 @@ document.addEventListener("DOMContentLoaded", function () {
             button.className = "participant-result";
             button.innerHTML = "<strong></strong><span></span>";
             button.querySelector("strong").textContent = participant.nome;
-            button.querySelector("span").textContent = participant.email || "Sem e-mail";
+            button.querySelector("span").textContent = [
+                participant.email || "Sem e-mail",
+                participant.whatsapp ? "WhatsApp cadastrado" : "Sem WhatsApp"
+            ].join(" | ");
             button.addEventListener("click", function () {
                 addParticipant(participant);
             });
@@ -384,6 +449,21 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         renderSelected();
     }
+
+    modeButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+            setParticipantMode(button.dataset.participantMode);
+        });
+    });
+
+    const newParticipantHasValue = [
+        document.getElementById("{{ form.novo_participante_nome.id_for_label }}"),
+        document.getElementById("{{ form.novo_participante_email.id_for_label }}"),
+        document.getElementById("{{ form.novo_participante_whatsapp.id_for_label }}")
+    ].some(function (input) {
+        return input && input.value.trim();
+    });
+    setParticipantMode(newParticipantHasValue ? "new" : "existing");
 
     if (search) {
         search.addEventListener("input", function () {

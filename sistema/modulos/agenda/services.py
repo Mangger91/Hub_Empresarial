@@ -116,6 +116,28 @@ def vincular_novo_participante(form, reuniao):
     reuniao.participantes.add(participante)
 
 
+def atualizar_whatsapps_participantes(form, reuniao):
+    participantes_atualizados = []
+    for participante in reuniao.participantes.all():
+        nome_campo = form.nome_campo_whatsapp_participante(participante.pk)
+        if nome_campo not in form.cleaned_data or (form.is_bound and nome_campo not in form.data):
+            continue
+
+        whatsapp = form.cleaned_data.get(nome_campo) or ""
+        if participante.whatsapp == whatsapp:
+            continue
+
+        participante.whatsapp = whatsapp
+        participante.atualizado_em = timezone.now()
+        participantes_atualizados.append(participante)
+
+    if participantes_atualizados:
+        Participante.objects.bulk_update(
+            participantes_atualizados,
+            ["whatsapp", "atualizado_em"],
+        )
+
+
 def agendar_whatsapp_reuniao_criada(reuniao):
     transaction.on_commit(partial(notificar_reuniao_criada_whatsapp, reuniao.pk))
 

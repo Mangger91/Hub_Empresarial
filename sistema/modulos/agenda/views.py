@@ -19,6 +19,7 @@ from ..common import MESES_PT_BR, contexto_modulo
 from .forms import RelatorioReuniaoFiltroForm, ReuniaoForm
 from .services import (
     agendar_whatsapp_reuniao_criada,
+    atualizar_whatsapps_participantes,
     concluir_reunioes_expiradas,
     criar_log_reuniao,
     gerar_fingerprint_reuniao,
@@ -213,15 +214,23 @@ def participantes_selecionados_para_form(form):
     else:
         participantes = Participante.objects.none()
 
-    return [
-        {
-            "id": participante.pk,
-            "nome": participante.nome,
-            "email": participante.email or "",
-            "whatsapp": participante.whatsapp or "",
-        }
-        for participante in participantes
-    ]
+    resultado = []
+    for participante in participantes:
+        nome_campo = form.nome_campo_whatsapp_participante(participante.pk)
+        whatsapp = (
+            form.data.get(nome_campo, participante.whatsapp or "")
+            if form.is_bound
+            else participante.whatsapp or ""
+        )
+        resultado.append(
+            {
+                "id": participante.pk,
+                "nome": participante.nome,
+                "email": participante.email or "",
+                "whatsapp": whatsapp,
+            }
+        )
+    return resultado
 
 
 @login_required
@@ -458,6 +467,7 @@ def nova_reuniao(request):
                 )
                 reuniao.save()
                 form.save_m2m()
+                atualizar_whatsapps_participantes(form, reuniao)
                 vincular_novo_participante(form, reuniao)
                 criar_log_reuniao(
                     reuniao,
@@ -539,6 +549,7 @@ def editar_reuniao(request, pk):
             )
             reuniao.save()
             form.save_m2m()
+            atualizar_whatsapps_participantes(form, reuniao)
             vincular_novo_participante(form, reuniao)
             criar_log_reuniao(reuniao, request.user, ReuniaoLog.Acao.EDICAO, "Reuniao editada.")
             notificar_participantes_reuniao(reuniao, "edicao", request.user)
