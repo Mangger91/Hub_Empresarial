@@ -6,17 +6,19 @@ from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from sistema.models import ModuloSistema, Participante, Reuniao, ReuniaoLog
 from sistema.permissions import usuario_eh_admin
-from sistema.utils import enviar_email_reuniao, enviar_email_reuniao_finalizada, enviar_whatsapp_reuniao
+from sistema.utils import enviar_email_reuniao, enviar_email_reuniao_finalizada
 
 from ..common import MESES_PT_BR, contexto_modulo
 from .forms import RelatorioReuniaoFiltroForm, ReuniaoForm
 from .services import (
+    agendar_whatsapp_reuniao_criada,
     concluir_reunioes_expiradas,
     criar_log_reuniao,
     gerar_fingerprint_reuniao,
@@ -186,14 +188,6 @@ def _exportar_relatorio_reunioes_csv(filtros, reunioes):
         )
 
     return resposta
-
-
-def _enviar_whatsapp_reuniao_sem_interromper(reuniao, tipo, erros):
-    try:
-        return enviar_whatsapp_reuniao(reuniao, tipo=tipo)
-    except Exception as erro:
-        erros.append(f"WhatsApp: {erro}")
-        return 0
 
 
 def mes_anterior_proximo(ano, mes):
@@ -456,22 +450,29 @@ def nova_reuniao(request):
 
         form = ReuniaoForm(request.POST)
         if form.is_valid():
-            reuniao = form.save(commit=False)
-            reuniao.organizador_usuario = request.user
-            reuniao.organizador = request.user.get_full_name() or request.user.email or request.user.username
-            reuniao.save()
-            form.save_m2m()
-            vincular_novo_participante(form, reuniao)
-            criar_log_reuniao(reuniao, request.user, ReuniaoLog.Acao.CRIACAO, "Reuniao criada.")
-            notificar_participantes_reuniao(reuniao, "criacao", request.user)
+            with transaction.atomic():
+                reuniao = form.save(commit=False)
+                reuniao.organizador_usuario = request.user
+                reuniao.organizador = (
+                    request.user.get_full_name() or request.user.email or request.user.username
+                )
+                reuniao.save()
+                form.save_m2m()
+                vincular_novo_participante(form, reuniao)
+                criar_log_reuniao(
+                    reuniao,
+                    request.user,
+                    ReuniaoLog.Acao.CRIACAO,
+                    "Reuniao criada.",
+                )
+                notificar_participantes_reuniao(reuniao, "criacao", request.user)
+                agendar_whatsapp_reuniao_criada(reuniao)
 
             erros_avisos = []
             try:
                 enviar_email_reuniao(reuniao, tipo="criacao")
             except Exception as erro:
                 erros_avisos.append(f"e-mail aos participantes: {erro}")
-
-            _enviar_whatsapp_reuniao_sem_interromper(reuniao, "criacao", erros_avisos)
 
             if erros_avisos:
                 messages.warning(
@@ -548,8 +549,6 @@ def editar_reuniao(request, pk):
             except Exception as erro:
                 erros_avisos.append(f"e-mail aos participantes: {erro}")
 
-            _enviar_whatsapp_reuniao_sem_interromper(reuniao, "edicao", erros_avisos)
-
             if status_anterior != Reuniao.Status.REALIZADA and reuniao.status == Reuniao.Status.REALIZADA:
                 try:
                     email_enviado = enviar_email_reuniao_finalizada(reuniao)
@@ -602,8 +601,6 @@ def cancelar_reuniao(request, pk):
         except Exception as erro:
             erros_avisos.append(f"e-mail: {erro}")
 
-        _enviar_whatsapp_reuniao_sem_interromper(reuniao, "cancelamento", erros_avisos)
-
         if erros_avisos:
             messages.warning(
                 request,
@@ -638,8 +635,6 @@ def reenviar_email_reuniao(request, pk):
         enviar_email_reuniao(reuniao, tipo="edicao")
     except Exception as erro:
         erros_avisos.append(f"e-mail: {erro}")
-
-    _enviar_whatsapp_reuniao_sem_interromper(reuniao, "edicao", erros_avisos)
 
     if erros_avisos:
         messages.error(request, "Erro ao reenviar aviso: " + "; ".join(erros_avisos) + ".")

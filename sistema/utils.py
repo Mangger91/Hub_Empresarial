@@ -1,10 +1,7 @@
-import json
 from datetime import datetime
 from email.utils import formataddr
 from email.mime.image import MIMEImage
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -37,13 +34,6 @@ def _montar_datas_reuniao(reuniao):
     inicio = datetime.combine(reuniao.data, reuniao.hora_inicio, tzinfo=TIMEZONE_REUNIAO)
     fim = datetime.combine(reuniao.data, reuniao.hora_fim, tzinfo=TIMEZONE_REUNIAO)
     return inicio, fim
-
-
-def _normalizar_whatsapp(numero):
-    telefone = "".join(caractere for caractere in str(numero or "") if caractere.isdigit())
-    if len(telefone) in {10, 11}:
-        return f"55{telefone}"
-    return telefone
 
 
 def _gerar_uid_reuniao(reuniao):
@@ -326,79 +316,6 @@ def enviar_email_reuniao(reuniao, tipo="criacao"):
     _anexar_assinatura_inline(email)
     email.send(fail_silently=False)
     return True
-
-
-def _montar_mensagem_whatsapp_reuniao(reuniao, tipo):
-    data_formatada = reuniao.data.strftime("%d/%m/%Y")
-    hora_inicio = reuniao.hora_inicio.strftime("%H:%M")
-    hora_fim = reuniao.hora_fim.strftime("%H:%M")
-    sala = reuniao.sala.nome
-
-    if tipo == "criacao":
-        abertura = "Nova reuniao agendada"
-    elif tipo == "edicao":
-        abertura = "Reuniao atualizada"
-    elif tipo == "cancelamento":
-        abertura = "Reuniao cancelada"
-    else:
-        abertura = "Aviso de reuniao"
-
-    return (
-        f"{abertura}: {reuniao.titulo}\n"
-        f"Data: {data_formatada}\n"
-        f"Horario: {hora_inicio} as {hora_fim}\n"
-        f"Sala: {sala}\n"
-        f"Status: {reuniao.get_status_display()}"
-    )
-
-
-def enviar_whatsapp_reuniao(reuniao, tipo="criacao"):
-    webhook_url = getattr(settings, "WHATSAPP_AGENDA_WEBHOOK_URL", "")
-    if not webhook_url:
-        return 0
-
-    mensagem = _montar_mensagem_whatsapp_reuniao(reuniao, tipo)
-    token = getattr(settings, "WHATSAPP_AGENDA_TOKEN", "")
-    timeout = getattr(settings, "WHATSAPP_AGENDA_REQUEST_TIMEOUT", 10)
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    enviados = 0
-    telefones = {
-        _normalizar_whatsapp(participante.whatsapp)
-        for participante in reuniao.participantes.all()
-        if getattr(participante, "whatsapp", "")
-    }
-    telefones = {telefone for telefone in telefones if telefone}
-
-    for telefone in telefones:
-        payload = {
-            "to": telefone,
-            "message": mensagem,
-            "meeting_id": reuniao.pk,
-            "type": tipo,
-        }
-        request = Request(
-            webhook_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=timeout):
-                enviados += 1
-        except HTTPError as erro:
-            raise RuntimeError(f"servico de WhatsApp retornou HTTP {erro.code}") from erro
-        except URLError as erro:
-            raise RuntimeError(f"nao foi possivel acessar o WhatsApp: {erro.reason}") from erro
-        except TimeoutError as erro:
-            raise RuntimeError("o servico de WhatsApp demorou para responder") from erro
-
-    return enviados
 
 
 def obter_email_criador_reuniao(reuniao):

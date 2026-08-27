@@ -1,9 +1,12 @@
 import hashlib
+from functools import partial
 
+from django.db import transaction
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
+from sistema.integracoes.whatsapp import notificar_reuniao_criada_whatsapp
 from sistema.models import ModuloSistema, Notificacao, Participante, Reuniao, ReuniaoLog
 from sistema.permissions import usuario_eh_admin, usuario_pode_editar
 
@@ -111,6 +114,10 @@ def vincular_novo_participante(form, reuniao):
             usuario=usuario,
         )
     reuniao.participantes.add(participante)
+
+
+def agendar_whatsapp_reuniao_criada(reuniao):
+    transaction.on_commit(partial(notificar_reuniao_criada_whatsapp, reuniao.pk))
 
 
 def notificar_participantes_reuniao(reuniao, tipo, autor):

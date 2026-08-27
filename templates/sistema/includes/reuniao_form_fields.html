@@ -214,7 +214,7 @@
     </div>
     {% if form.participantes.errors %}<div class="erro">{{ form.participantes.errors|join:", " }}</div>{% endif %}
 
-    <div class="new-participant-panel {% if not form.novo_participante_nome.errors and not form.novo_participante_email.errors %}is-hidden{% endif %}" data-new-participant-panel>
+    <div class="new-participant-panel {% if not form.novo_participante_nome.errors and not form.novo_participante_email.errors and not form.novo_participante_whatsapp.errors %}is-hidden{% endif %}" data-new-participant-panel>
         <div>
             <label for="{{ form.novo_participante_nome.id_for_label }}">{{ form.novo_participante_nome.label }}</label>
             {{ form.novo_participante_nome }}
@@ -228,6 +228,7 @@
         <div>
             <label for="{{ form.novo_participante_whatsapp.id_for_label }}">{{ form.novo_participante_whatsapp.label }}</label>
             {{ form.novo_participante_whatsapp }}
+            {% if form.novo_participante_whatsapp.help_text %}<small>{{ form.novo_participante_whatsapp.help_text }}</small>{% endif %}
             {% if form.novo_participante_whatsapp.errors %}<div class="erro">{{ form.novo_participante_whatsapp.errors|join:", " }}</div>{% endif %}
         </div>
     </div>

@@ -1,5 +1,6 @@
 from django import forms
 
+from sistema.integracoes.whatsapp import normalizar_telefone_whatsapp
 from sistema.models import Participante, Reuniao, Sala
 
 
@@ -36,6 +37,7 @@ class ReuniaoForm(forms.ModelForm):
                 "placeholder": "Ex.: 41999999999",
             }
         ),
+        help_text="Informe DDD e numero. O codigo +55 e adicionado automaticamente.",
     )
     participantes = forms.ModelMultipleChoiceField(
         queryset=Participante.objects.none(),
@@ -89,6 +91,16 @@ class ReuniaoForm(forms.ModelForm):
             self.add_error("novo_participante_nome", "Informe o nome do novo participante.")
 
         return cleaned_data
+
+    def clean_novo_participante_whatsapp(self):
+        numero = self.cleaned_data.get("novo_participante_whatsapp")
+        if not numero:
+            return ""
+
+        telefone = normalizar_telefone_whatsapp(numero)
+        if not telefone:
+            raise forms.ValidationError("Informe um WhatsApp valido com DDD.")
+        return telefone
 
 
 class RelatorioReuniaoFiltroForm(forms.Form):
