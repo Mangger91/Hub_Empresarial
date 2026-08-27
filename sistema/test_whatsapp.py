@@ -209,6 +209,40 @@ class ReuniaoWhatsAppTests(TestCase):
         )
 
     @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
+    def test_reenviar_aviso_tenta_email_e_whatsapp_e_exibe_erro(self, enviar_mock):
+        enviar_mock.return_value = ResultadoEnvioWhatsApp(
+            sucesso=False,
+            status_http=401,
+            erro="token invalido ou expirado (codigo 190)",
+        )
+        participante = Participante.objects.create(
+            nome="Roberto",
+            email="roberto@example.com",
+            whatsapp="41984086184",
+        )
+        reuniao = Reuniao.objects.create(
+            titulo="Reuniao para reenvio",
+            descricao="Teste dos dois canais",
+            data=timezone.localdate() + timedelta(days=2),
+            hora_inicio="09:00",
+            hora_fim="10:00",
+            sala=self.sala,
+            organizador=self.usuario.email,
+            organizador_usuario=self.usuario,
+        )
+        reuniao.participantes.add(participante)
+
+        resposta = self.client.get(
+            reverse("reenviar_email_reuniao", args=[reuniao.pk]),
+            follow=True,
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        enviar_mock.assert_called_once()
+        self.assertContains(resposta, "WhatsApp: HTTP 401")
+
+    @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
     def test_varios_participantes_enviam_somente_para_telefones_validos(self, enviar_mock):
         enviar_mock.return_value = ResultadoEnvioWhatsApp(
             sucesso=True,

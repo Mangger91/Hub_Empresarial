@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
+from sistema.integracoes.whatsapp import notificar_reuniao_criada_whatsapp
 from sistema.models import ModuloSistema, Participante, Reuniao, ReuniaoLog
 from sistema.permissions import usuario_eh_admin
 from sistema.utils import enviar_email_reuniao, enviar_email_reuniao_finalizada
@@ -52,6 +53,15 @@ def montar_semanas_do_calendario(ano, mes, reunioes):
         ]
         for semana in calendario.monthdatescalendar(ano, mes)
     ]
+
+
+def descrever_primeiro_erro_whatsapp(resultado):
+    primeiro_erro = (resultado.get("erros") or [{}])[0]
+    status_http = primeiro_erro.get("status_http")
+    detalhe = primeiro_erro.get("mensagem") or "falha nao informada pela Meta"
+    if status_http:
+        return f"HTTP {status_http}: {detalhe}"
+    return detalhe
 
 
 def montar_resumo_agenda(reunioes):
@@ -486,12 +496,9 @@ def nova_reuniao(request):
                 erros_avisos.append(f"e-mail aos participantes: {erro}")
 
             if resultado_whatsapp.get("falhas"):
-                primeiro_erro = (resultado_whatsapp.get("erros") or [{}])[0]
-                status_http = primeiro_erro.get("status_http")
-                detalhe = primeiro_erro.get("mensagem") or "falha nao informada pela Meta"
-                if status_http:
-                    detalhe = f"HTTP {status_http}: {detalhe}"
-                erros_avisos.append(f"WhatsApp: {detalhe}")
+                erros_avisos.append(
+                    f"WhatsApp: {descrever_primeiro_erro_whatsapp(resultado_whatsapp)}"
+                )
 
             if erros_avisos:
                 messages.warning(
@@ -655,6 +662,12 @@ def reenviar_email_reuniao(request, pk):
         enviar_email_reuniao(reuniao, tipo="edicao")
     except Exception as erro:
         erros_avisos.append(f"e-mail: {erro}")
+
+    resultado_whatsapp = notificar_reuniao_criada_whatsapp(reuniao.pk)
+    if resultado_whatsapp.get("falhas"):
+        erros_avisos.append(
+            f"WhatsApp: {descrever_primeiro_erro_whatsapp(resultado_whatsapp)}"
+        )
 
     if erros_avisos:
         messages.error(request, "Erro ao reenviar aviso: " + "; ".join(erros_avisos) + ".")
