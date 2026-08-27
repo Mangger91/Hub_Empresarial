@@ -40,7 +40,7 @@ class AutenticacaoEmailTests(TestCase):
             {"username": "mangger@empresa.com.br", "password": "SenhaForte123"},
         )
         self.assertEqual(resposta.status_code, 302)
-        self.assertRedirects(resposta, reverse("dashboard"))
+        self.assertRedirects(resposta, reverse("inicio"))
 
 
 class UsuariosSetoresFuncoesTests(TestCase):

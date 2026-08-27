@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Inicio{% endblock %}
+{% block page_title %}Inicio{% endblock %}
+
+{% block content %}
+<section class="home-hero">
+    <div>
+        <span class="section-kicker">Central interna</span>
+        <h2>Bom trabalho, {{ user.first_name|default:user.username }}</h2>
+        <p>Escolha por onde deseja comecar ou acompanhe rapidamente o que precisa de atencao hoje.</p>
+    </div>
+    <div class="home-hero-actions">
+        <a href="{% url 'dashboard' %}" class="btn btn-primary">
+            <svg class="btn-icon" aria-hidden="true"><use href="#icon-layout"></use></svg>
+            <span>Abrir painel</span>
+        </a>
+        <a href="{% url 'home' %}" class="btn btn-secondary">
+            <svg class="btn-icon" aria-hidden="true"><use href="#icon-calendar"></use></svg>
+            <span>Minha agenda</span>
+        </a>
+    </div>
+</section>
+
+<section class="home-summary-grid">
+    <article class="stat-card">
+        <strong>Reunioes hoje</strong>
+        <span>{{ reunioes_hoje }}</span>
+    </article>
+    <article class="stat-card">
+        <strong>Proximos 7 dias</strong>
+        <span>{{ reunioes_semana }}</span>
+    </article>
+    <article class="stat-card">
+        <strong>Alertas de estoque</strong>
+        <span>{{ estoque_alertas }}</span>
+    </article>
+    <article class="stat-card">
+        <strong>Modulos liberados</strong>
+        <span>{{ total_modulos }}</span>
+    </article>
+</section>
+
+<section class="home-layout">
+    <div class="home-main">
+        <section class="card">
+            <div class="card-header-simple">
+                <div>
+                    <span class="section-kicker">Atalhos</span>
+                    <h3>Principais acessos</h3>
+                </div>
+            </div>
+            <div class="home-shortcuts">
+                {% for modulo in atalhos_modulos %}
+                <a href="{% url modulo.rota %}" class="home-shortcut">
+                    <span class="module-icon">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#icon-{{ modulo.icone }}"></use></svg>
+                    </span>
+                    <span>
+                        <strong>{{ modulo.nome }}</strong>
+                        <small>{{ modulo.descricao }}</small>
+                    </span>
+                </a>
+                {% empty %}
+                <div class="empty-box">Seu usuario ainda nao possui modulos liberados.</div>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+
+    <aside class="home-side">
+        <section class="card">
+            <div class="card-header-simple">
+                <div>
+                    <span class="section-kicker">Notificacoes</span>
+                    <h3>Recentes</h3>
+                </div>
+                <a href="{% url 'central_notificacoes' %}" class="btn btn-secondary">Ver todas</a>
+            </div>
+            {% if notificacoes_recentes %}
+            <div class="list-stack">
+                {% for notificacao in notificacoes_recentes %}
+                <a href="{% url 'abrir_notificacao' notificacao.pk %}" class="list-row">
+                    <div>
+                        <strong>{{ notificacao.titulo }}</strong>
+                        <p>{{ notificacao.mensagem }}</p>
+                    </div>
+                    <span>{{ notificacao.criada_em|date:"d/m H:i" }}</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-box">Nenhuma notificacao por enquanto.</div>
+            {% endif %}
+        </section>
+    </aside>
+</section>
+{% endblock %}
