@@ -2,7 +2,7 @@ Fluxo de desenvolvimento local validado em 30/07/2026.
 
 # Agenda de Reuniões
 
-Sistema interno de agendamento de reuniões desenvolvido com Django, com foco em organização visual, cadastro de participantes, controle por mês e envio de e-mails.
+Sistema interno de agendamento de reuniões desenvolvido com Django, com foco em organização visual, cadastro de participantes, controle por mês e envio de notificações.
 
 ## Destaques
 
@@ -11,6 +11,12 @@ Sistema interno de agendamento de reuniões desenvolvido com Django, com foco em
 - Configuração sensível isolada em variáveis de ambiente.
 - CSS centralizado em `static/css/app.css`.
 - Fluxo de criação, edição, cancelamento e detalhe de reuniões.
+- Envio de e-mail e integração opcional com a WhatsApp Cloud API oficial da Meta.
+
+## WhatsApp Cloud API
+
+A configuração do número de teste, templates e variáveis de ambiente está em
+[docs/whatsapp-cloud-api.md](docs/whatsapp-cloud-api.md).
 
 ## Estrutura de configuração
 
