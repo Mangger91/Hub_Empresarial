@@ -242,6 +242,47 @@ class ReuniaoWhatsAppTests(TestCase):
         enviar_mock.assert_called_once()
         self.assertContains(resposta, "WhatsApp: HTTP 401")
 
+    @patch(
+        "sistema.modulos.agenda.views.enviar_email_reuniao",
+        side_effect=RuntimeError("remetente nao configurado"),
+    )
+    @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
+    def test_reenvio_informa_whatsapp_enviado_quando_email_falha(
+        self,
+        enviar_mock,
+        _enviar_email_mock,
+    ):
+        enviar_mock.return_value = ResultadoEnvioWhatsApp(
+            sucesso=True,
+            status_http=200,
+            mensagem_id="wamid.reenvio-parcial",
+        )
+        participante = Participante.objects.create(
+            nome="Roberto",
+            email="roberto@example.com",
+            whatsapp="41984086184",
+        )
+        reuniao = Reuniao.objects.create(
+            titulo="Reuniao para reenvio parcial",
+            descricao="Teste dos canais independentes",
+            data=timezone.localdate() + timedelta(days=2),
+            hora_inicio="09:00",
+            hora_fim="10:00",
+            sala=self.sala,
+            organizador=self.usuario.email,
+            organizador_usuario=self.usuario,
+        )
+        reuniao.participantes.add(participante)
+
+        resposta = self.client.get(
+            reverse("reenviar_email_reuniao", args=[reuniao.pk]),
+            follow=True,
+        )
+
+        self.assertContains(resposta, "Reenvio concluido parcialmente")
+        self.assertContains(resposta, "WhatsApp (1 destinatario(s))")
+        self.assertContains(resposta, "e-mail: remetente nao configurado")
+
     @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
     def test_varios_participantes_enviam_somente_para_telefones_validos(self, enviar_mock):
         enviar_mock.return_value = ResultadoEnvioWhatsApp(

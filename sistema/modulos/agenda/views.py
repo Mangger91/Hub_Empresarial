@@ -658,21 +658,41 @@ def reenviar_email_reuniao(request, pk):
         return redirect("home")
 
     erros_avisos = []
+    canais_enviados = []
     try:
         enviar_email_reuniao(reuniao, tipo="edicao")
+        canais_enviados.append("e-mail")
     except Exception as erro:
         erros_avisos.append(f"e-mail: {erro}")
 
     resultado_whatsapp = notificar_reuniao_criada_whatsapp(reuniao.pk)
+    if resultado_whatsapp.get("enviados"):
+        canais_enviados.append(
+            f"WhatsApp ({resultado_whatsapp['enviados']} destinatario(s))"
+        )
     if resultado_whatsapp.get("falhas"):
         erros_avisos.append(
             f"WhatsApp: {descrever_primeiro_erro_whatsapp(resultado_whatsapp)}"
         )
 
-    if erros_avisos:
+    if erros_avisos and canais_enviados:
+        messages.warning(
+            request,
+            "Reenvio concluido parcialmente. Enviado por "
+            + ", ".join(canais_enviados)
+            + ". Falhas: "
+            + "; ".join(erros_avisos)
+            + ".",
+        )
+    elif erros_avisos:
         messages.error(request, "Erro ao reenviar aviso: " + "; ".join(erros_avisos) + ".")
+    elif canais_enviados:
+        messages.success(
+            request,
+            "Aviso reenviado por " + ", ".join(canais_enviados) + ".",
+        )
     else:
-        messages.success(request, "Aviso reenviado com sucesso.")
+        messages.warning(request, "Nenhum aviso foi enviado aos participantes.")
     return redirect("detalhe_reuniao", pk=pk)
 
 
