@@ -6,10 +6,10 @@
 {% block content %}
 <section class="hero-panel">
     <div>
-        <span class="section-kicker">Visao geral</span>
-        <h2>Central de trabalho</h2>
+        <span class="section-kicker">Visao executiva</span>
+        <h2>Painel principal</h2>
         <p>
-            Acompanhe reunioes, estoque, rotas e notificacoes do escritorio em um unico painel.
+            Operacoes internas, alertas e acessos essenciais em uma unica tela.
         </p>
     </div>
     <div class="hero-actions">
@@ -33,45 +33,74 @@
     </article>
 </section>
 
-<section class="card-grid">
-    {% for modulo in menu_sistema %}
-    <article class="module-card {% if not modulo.possui_acesso %}module-card-muted{% endif %}">
-        <div class="module-icon">{{ modulo.icone }}</div>
-        <div>
-            <h3>{{ modulo.nome }}</h3>
-            <p>{{ modulo.descricao }}</p>
-            <span class="module-role">{{ modulo.papel }}</span>
-        </div>
-        <a href="{% url modulo.rota %}" class="btn btn-secondary">Abrir modulo</a>
-    </article>
-    {% endfor %}
-</section>
-
-<section class="card">
-    <div class="card-header-simple">
-        <div>
-            <span class="section-kicker">Notificacoes</span>
-            <h3>Ultimos avisos do sistema</h3>
-        </div>
-        <a href="{% url 'central_notificacoes' %}" class="btn btn-secondary">Ver todas</a>
+<section class="dashboard-layout">
+    <div class="dashboard-main">
+        <section class="card-grid">
+            {% for modulo in menu_sistema %}
+            <article class="module-card {% if not modulo.possui_acesso %}module-card-muted{% endif %}">
+                <div class="module-icon">
+                    <svg class="ui-icon" aria-hidden="true"><use href="#icon-{{ modulo.icone }}"></use></svg>
+                </div>
+                <div>
+                    <h3>{{ modulo.nome }}</h3>
+                    <p>{{ modulo.descricao }}</p>
+                    <span class="module-role">{{ modulo.papel }}</span>
+                </div>
+                <a href="{% url modulo.rota %}" class="btn btn-secondary">Abrir modulo</a>
+            </article>
+            {% endfor %}
+        </section>
     </div>
 
-    {% if notificacoes_recentes %}
-    <div class="list-stack">
-        {% for notificacao in notificacoes_recentes %}
-        <a href="{% url 'abrir_notificacao' notificacao.pk %}" class="list-row">
-            <div>
-                <strong>{{ notificacao.titulo }}</strong>
-                <p>{{ notificacao.mensagem }}</p>
+    <aside class="dashboard-side">
+        <section class="card">
+            <div class="card-header-simple">
+                <div>
+                    <span class="section-kicker">Notificacoes</span>
+                    <h3>Ultimos avisos</h3>
+                </div>
+                <a href="{% url 'central_notificacoes' %}" class="btn btn-secondary">Ver todas</a>
             </div>
-            <span>{{ notificacao.criada_em|date:"d/m/Y H:i" }}</span>
-        </a>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-box">
-        Nenhuma notificacao por enquanto.
-    </div>
-    {% endif %}
+
+            {% if notificacoes_recentes %}
+            <div class="list-stack">
+                {% for notificacao in notificacoes_recentes %}
+                <a href="{% url 'abrir_notificacao' notificacao.pk %}" class="list-row">
+                    <div>
+                        <strong>{{ notificacao.titulo }}</strong>
+                        <p>{{ notificacao.mensagem }}</p>
+                    </div>
+                    <span>{{ notificacao.criada_em|date:"d/m/Y H:i" }}</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-box">
+                Nenhuma notificacao por enquanto.
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="card">
+            <div>
+                <span class="section-kicker">Atalhos</span>
+                <h3>Acoes frequentes</h3>
+            </div>
+            <div class="list-stack">
+                <a href="{% url 'estoque_adm' %}" class="list-row">
+                    <strong>Estoque ADM</strong>
+                    <span>Abrir</span>
+                </a>
+                <a href="{% url 'rota_motoboy' %}" class="list-row">
+                    <strong>Rota do MotoBoy</strong>
+                    <span>Abrir</span>
+                </a>
+                <a href="{% url 'home' %}" class="list-row">
+                    <strong>Agenda</strong>
+                    <span>Abrir</span>
+                </a>
+            </div>
+        </section>
+    </aside>
 </section>
 {% endblock %}

@@ -8,7 +8,8 @@ from .modulos.usuarios import views as usuarios_views
 
 
 urlpatterns = [
-    path("", core_views.dashboard, name="dashboard"),
+    path("", core_views.inicio, name="inicio"),
+    path("painel/", core_views.dashboard, name="dashboard"),
     path("usuarios/", usuarios_views.usuarios_lista, name="usuarios_lista"),
     path("usuarios/novo/", usuarios_views.usuario_novo, name="usuario_novo"),
     path("usuarios/<int:pk>/editar/", usuarios_views.usuario_editar, name="usuario_editar"),

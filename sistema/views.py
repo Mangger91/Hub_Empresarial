@@ -14,6 +14,7 @@ from .modulos.core.views import (
     central_notificacoes,
     chamados_ti,
     dashboard,
+    inicio,
     modulo_placeholder,
 )
 from .modulos.estoque.views import (
@@ -52,6 +53,7 @@ __all__ = [
     "central_notificacoes",
     "chamados_ti",
     "dashboard",
+    "inicio",
     "detalhe_item_estoque",
     "detalhe_reuniao",
     "editar_categoria_estoque",

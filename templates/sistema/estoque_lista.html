@@ -23,6 +23,28 @@
 
     .stock-kpi {
         padding: 14px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stock-kpi::before {
+        background: var(--brand-cyan);
+        content: "";
+        inset: 0 auto 0 0;
+        position: absolute;
+        width: 4px;
+    }
+
+    .stock-kpi.success::before {
+        background: var(--success);
+    }
+
+    .stock-kpi.warning::before {
+        background: var(--warning);
+    }
+
+    .stock-kpi.danger::before {
+        background: var(--danger);
     }
 
     .stock-kpi strong {
@@ -182,17 +204,36 @@
     }
 
     .stock-table th {
+        background: #f8fafc;
         color: var(--muted);
         font-size: 0.74rem;
         font-weight: 800;
         letter-spacing: 0.05em;
+        position: sticky;
+        top: 0;
         text-transform: uppercase;
         white-space: nowrap;
+        z-index: 1;
     }
 
     .stock-table td:last-child,
     .stock-table th:last-child {
         text-align: right;
+    }
+
+    .stock-table tbody tr:hover {
+        background: #f8fbff;
+    }
+
+    .stock-number {
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .stock-current {
+        color: var(--accent-strong);
+        font-weight: 800;
     }
 
     .stock-product strong {
@@ -217,8 +258,8 @@
 
     .stock-status {
         border-radius: 999px;
-        background: #e7f7f4;
-        color: #115e59;
+        background: var(--success-soft);
+        color: var(--success);
         display: inline-flex;
         font-size: 0.74rem;
         font-weight: 800;
@@ -310,7 +351,7 @@
 </div>
 {% else %}
 <section class="stock-overview">
-    <article class="stock-kpi">
+    <article class="stock-kpi success">
         <strong>Itens cadastrados</strong>
         <span>{{ painel_estoque.total_itens }}</span>
     </article>
@@ -322,11 +363,11 @@
         <strong>Valor estimado</strong>
         <span>R$ {{ painel_estoque.valor_estimado|floatformat:2 }}</span>
     </article>
-    <article class="stock-kpi">
+    <article class="stock-kpi warning">
         <strong>Em atencao</strong>
         <span>{{ painel_estoque.baixo_estoque }}</span>
     </article>
-    <article class="stock-kpi">
+    <article class="stock-kpi danger">
         <strong>Sem estoque</strong>
         <span>{{ painel_estoque.sem_estoque }}</span>
     </article>
@@ -442,10 +483,10 @@
                         <strong><a href="{% url 'detalhe_item_estoque' item.pk %}">{{ item.nome }}</a></strong>
                         <span>{{ item.categoria_nome }}{% if item.descricao %} | {{ item.descricao }}{% endif %}</span>
                     </td>
-                    <td><strong>{{ item.total_entradas }}</strong></td>
-                    <td><strong>{{ item.total_saidas }}</strong></td>
-                    <td><strong>{{ item.quantidade_atual }}</strong> {{ item.unidade_medida }}</td>
-                    <td>{{ item.estoque_minimo }} {{ item.unidade_medida }}</td>
+                    <td class="stock-number"><strong>{{ item.total_entradas }}</strong></td>
+                    <td class="stock-number"><strong>{{ item.total_saidas }}</strong></td>
+                    <td class="stock-number stock-current">{{ item.quantidade_atual }} {{ item.unidade_medida }}</td>
+                    <td class="stock-number">{{ item.estoque_minimo }} {{ item.unidade_medida }}</td>
                     <td>
                         {% if item.estoque_baixo %}
                         <span class="stock-status danger">{{ item.status_estoque }}</span>
