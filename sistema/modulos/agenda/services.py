@@ -1,9 +1,11 @@
 import hashlib
 
+from django.db import transaction
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
+from sistema.integracoes.whatsapp import notificar_reuniao_criada_whatsapp
 from sistema.models import ModuloSistema, Notificacao, Participante, Reuniao, ReuniaoLog
 from sistema.permissions import usuario_eh_admin, usuario_pode_editar
 
@@ -111,6 +113,37 @@ def vincular_novo_participante(form, reuniao):
             usuario=usuario,
         )
     reuniao.participantes.add(participante)
+
+
+def atualizar_whatsapps_participantes(form, reuniao):
+    participantes_atualizados = []
+    for participante in reuniao.participantes.all():
+        nome_campo = form.nome_campo_whatsapp_participante(participante.pk)
+        if nome_campo not in form.cleaned_data or (form.is_bound and nome_campo not in form.data):
+            continue
+
+        whatsapp = form.cleaned_data.get(nome_campo) or ""
+        if participante.whatsapp == whatsapp:
+            continue
+
+        participante.whatsapp = whatsapp
+        participante.atualizado_em = timezone.now()
+        participantes_atualizados.append(participante)
+
+    if participantes_atualizados:
+        Participante.objects.bulk_update(
+            participantes_atualizados,
+            ["whatsapp", "atualizado_em"],
+        )
+
+
+def agendar_whatsapp_reuniao_criada(reuniao, destino_resultado=None):
+    def enviar_apos_commit():
+        resumo = notificar_reuniao_criada_whatsapp(reuniao.pk)
+        if destino_resultado is not None:
+            destino_resultado.update(resumo)
+
+    transaction.on_commit(enviar_apos_commit)
 
 
 def notificar_participantes_reuniao(reuniao, tipo, autor):

@@ -1,5 +1,6 @@
 from django import forms
 
+from sistema.integracoes.whatsapp import normalizar_telefone_whatsapp
 from sistema.models import Participante, Reuniao, Sala
 
 
@@ -36,6 +37,7 @@ class ReuniaoForm(forms.ModelForm):
                 "placeholder": "Ex.: 41999999999",
             }
         ),
+        help_text="Informe DDD e numero. O codigo +55 e adicionado automaticamente.",
     )
     participantes = forms.ModelMultipleChoiceField(
         queryset=Participante.objects.none(),
@@ -54,6 +56,7 @@ class ReuniaoForm(forms.ModelForm):
             "hora_fim",
             "sala",
             "participantes",
+            "responsavel_ata",
             "status",
         ]
         widgets = {
@@ -71,6 +74,12 @@ class ReuniaoForm(forms.ModelForm):
             "hora_inicio": forms.TimeInput(attrs={**FORM_CONTROL, "type": "time"}),
             "hora_fim": forms.TimeInput(attrs={**FORM_CONTROL, "type": "time"}),
             "sala": forms.Select(attrs=FORM_CONTROL),
+            "responsavel_ata": forms.TextInput(
+                attrs={
+                    **FORM_CONTROL,
+                    "placeholder": "Ex.: Lidiane",
+                }
+            ),
             "status": forms.Select(attrs=FORM_CONTROL),
         }
 
@@ -78,6 +87,27 @@ class ReuniaoForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["participantes"].queryset = Participante.objects.all().order_by("nome")
         self.fields["sala"].queryset = Sala.objects.filter(ativa=True).order_by("nome")
+        self._campos_whatsapp_participantes = {}
+
+        if self.is_bound:
+            participantes_ids = self.data.getlist("participantes")
+        elif self.instance and self.instance.pk:
+            participantes_ids = self.instance.participantes.values_list("pk", flat=True)
+        else:
+            participantes_ids = []
+
+        participantes = Participante.objects.filter(pk__in=participantes_ids)
+        for participante in participantes:
+            nome_campo = self.nome_campo_whatsapp_participante(participante.pk)
+            self.fields[nome_campo] = forms.CharField(
+                required=False,
+                initial=participante.whatsapp,
+            )
+            self._campos_whatsapp_participantes[participante.pk] = nome_campo
+
+    @staticmethod
+    def nome_campo_whatsapp_participante(participante_id):
+        return f"participante_whatsapp_{participante_id}"
 
     def clean(self):
         cleaned_data = super().clean()
@@ -88,7 +118,36 @@ class ReuniaoForm(forms.ModelForm):
         if (novo_email or novo_whatsapp) and not novo_nome:
             self.add_error("novo_participante_nome", "Informe o nome do novo participante.")
 
+        whatsapp_invalido = False
+        for nome_campo in self._campos_whatsapp_participantes.values():
+            if self.is_bound and nome_campo not in self.data:
+                continue
+            numero = cleaned_data.get(nome_campo)
+            if not numero:
+                cleaned_data[nome_campo] = ""
+                continue
+
+            telefone = normalizar_telefone_whatsapp(numero)
+            if not telefone:
+                self.add_error(nome_campo, "Informe um WhatsApp valido com DDD.")
+                whatsapp_invalido = True
+                continue
+            cleaned_data[nome_campo] = telefone
+
+        if whatsapp_invalido:
+            self.add_error("participantes", "Corrija o WhatsApp do participante selecionado.")
+
         return cleaned_data
+
+    def clean_novo_participante_whatsapp(self):
+        numero = self.cleaned_data.get("novo_participante_whatsapp")
+        if not numero:
+            return ""
+
+        telefone = normalizar_telefone_whatsapp(numero)
+        if not telefone:
+            raise forms.ValidationError("Informe um WhatsApp valido com DDD.")
+        return telefone
 
 
 class RelatorioReuniaoFiltroForm(forms.Form):

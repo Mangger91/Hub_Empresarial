@@ -40,7 +40,7 @@ class AutenticacaoEmailTests(TestCase):
             {"username": "mangger@empresa.com.br", "password": "SenhaForte123"},
         )
         self.assertEqual(resposta.status_code, 302)
-        self.assertRedirects(resposta, reverse("dashboard"))
+        self.assertRedirects(resposta, reverse("inicio"))
 
 
 class UsuariosSetoresFuncoesTests(TestCase):
@@ -330,6 +330,7 @@ class AgendaParticipantesFormTests(TestCase):
                 "hora_fim": "10:00",
                 "sala": str(self.sala.pk),
                 "status": Reuniao.Status.AGENDADA,
+                "responsavel_ata": "Lidiane",
                 "participantes": [str(self.participante.pk)],
             },
         )
@@ -337,6 +338,7 @@ class AgendaParticipantesFormTests(TestCase):
         reuniao = Reuniao.objects.get(titulo="Alinhamento com Junior")
         self.assertEqual(resposta.status_code, 302)
         self.assertTrue(reuniao.participantes.filter(pk=self.participante.pk).exists())
+        self.assertEqual(reuniao.responsavel_ata, "Lidiane")
 
     def test_cria_reuniao_com_novo_participante_sem_email(self):
         resposta = self.client.post(
