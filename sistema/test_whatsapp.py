@@ -226,6 +226,34 @@ class ReuniaoWhatsAppTests(TestCase):
         enviar_mock.assert_called_once()
 
     @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
+    def test_participante_existente_pode_receber_whatsapp_no_novo_agendamento(self, enviar_mock):
+        enviar_mock.return_value = ResultadoEnvioWhatsApp(
+            sucesso=True,
+            status_http=200,
+            mensagem_id="wamid.teste-atualizacao",
+        )
+        participante = Participante.objects.create(
+            nome="Isabela",
+            email="isabela@example.com",
+        )
+        dados = self.dados_reuniao([participante])
+        dados.update(
+            {
+                "novo_participante_nome": "Isabela",
+                "novo_participante_email": "isabela@example.com",
+                "novo_participante_whatsapp": "41944443333",
+            }
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resposta = self.client.post(reverse("nova_reuniao"), dados)
+
+        participante.refresh_from_db()
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(participante.whatsapp, "5541944443333")
+        enviar_mock.assert_called_once()
+
+    @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
     def test_edicao_da_reuniao_nao_dispara_whatsapp(self, enviar_mock):
         participante = Participante.objects.create(
             nome="Gabriela",

@@ -860,8 +860,23 @@ a.list-row:hover {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 12px;
-    padding-top: 12px;
+    padding-top: 8px;
+}
+
+.participant-contact-heading {
+    display: grid;
+    gap: 3px;
+    margin-top: 16px;
+    padding-top: 14px;
     border-top: 1px solid var(--border);
+}
+
+.participant-contact-heading strong {
+    font-size: 0.9rem;
+}
+
+.participant-contact-heading small {
+    color: var(--muted);
 }
 
 .is-hidden {

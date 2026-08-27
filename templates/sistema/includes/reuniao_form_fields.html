@@ -172,9 +172,8 @@
     <div class="section-line">
         <div>
             <h3>Participantes</h3>
-            <p>Busque por nome ou e-mail e adicione somente quem participara da reuniao.</p>
+            <p>Selecione contatos existentes ou cadastre um participante com e-mail e WhatsApp.</p>
         </div>
-        <button type="button" class="btn btn-secondary" data-toggle-new-participant>Adicionar participante</button>
     </div>
 
     <div class="participant-picker" data-participant-picker data-search-url="{% url 'buscar_participantes' %}">
@@ -214,7 +213,11 @@
     </div>
     {% if form.participantes.errors %}<div class="erro">{{ form.participantes.errors|join:", " }}</div>{% endif %}
 
-    <div class="new-participant-panel {% if not form.novo_participante_nome.errors and not form.novo_participante_email.errors and not form.novo_participante_whatsapp.errors %}is-hidden{% endif %}" data-new-participant-panel>
+    <div class="participant-contact-heading">
+        <strong>Cadastrar ou atualizar participante</strong>
+        <small>Se o e-mail ja existir, o WhatsApp informado sera atualizado nesse contato.</small>
+    </div>
+    <div class="new-participant-panel">
         <div>
             <label for="{{ form.novo_participante_nome.id_for_label }}">{{ form.novo_participante_nome.label }}</label>
             {{ form.novo_participante_nome }}
@@ -246,8 +249,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const emptyState = document.querySelector("[data-participant-empty]");
     const countLabel = document.querySelector("[data-participant-count]");
     const emailSummary = document.querySelector("[data-participant-email-summary]");
-    const toggle = document.querySelector("[data-toggle-new-participant]");
-    const panel = document.querySelector("[data-new-participant-panel]");
     const initialData = document.getElementById("participantes-selecionados-data");
     const selected = new Map();
     let searchTimer = null;
@@ -414,10 +415,5 @@ document.addEventListener("DOMContentLoaded", function () {
         selectedList.title = "Participantes selecionados";
     }
 
-    if (toggle && panel) {
-        toggle.addEventListener("click", function () {
-            panel.classList.toggle("is-hidden");
-        });
-    }
 });
 </script>
