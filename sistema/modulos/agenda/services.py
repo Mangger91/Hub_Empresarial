@@ -1,5 +1,4 @@
 import hashlib
-from functools import partial
 
 from django.db import transaction
 from django.db.models import Q
@@ -138,8 +137,13 @@ def atualizar_whatsapps_participantes(form, reuniao):
         )
 
 
-def agendar_whatsapp_reuniao_criada(reuniao):
-    transaction.on_commit(partial(notificar_reuniao_criada_whatsapp, reuniao.pk))
+def agendar_whatsapp_reuniao_criada(reuniao, destino_resultado=None):
+    def enviar_apos_commit():
+        resumo = notificar_reuniao_criada_whatsapp(reuniao.pk)
+        if destino_resultado is not None:
+            destino_resultado.update(resumo)
+
+    transaction.on_commit(enviar_apos_commit)
 
 
 def notificar_participantes_reuniao(reuniao, tipo, autor):

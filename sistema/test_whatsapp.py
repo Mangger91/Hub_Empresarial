@@ -10,6 +10,7 @@ from django.utils import timezone
 from sistema.integracoes.whatsapp import (
     ResultadoEnvioWhatsApp,
     enviar_template_whatsapp,
+    notificar_reuniao_criada_whatsapp,
     normalizar_telefone_whatsapp,
 )
 from sistema.models import Participante, PerfilUsuario, Reuniao, Sala
@@ -169,6 +170,43 @@ class ReuniaoWhatsAppTests(TestCase):
         self.assertTrue(Reuniao.objects.filter(titulo="Reuniao de planejamento").exists())
         self.assertEqual(len(mail.outbox), 1)
         enviar_mock.assert_called_once()
+
+    @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
+    def test_erro_da_meta_e_incluido_no_resumo_do_envio(self, enviar_mock):
+        enviar_mock.return_value = ResultadoEnvioWhatsApp(
+            sucesso=False,
+            status_http=401,
+            erro="token invalido ou expirado (codigo 190)",
+        )
+        participante = Participante.objects.create(
+            nome="Carla",
+            email="carla@example.com",
+            whatsapp="41988887777",
+        )
+        reuniao = Reuniao.objects.create(
+            titulo="Reuniao com erro da Meta",
+            descricao="Teste de retorno da API",
+            data=timezone.localdate() + timedelta(days=2),
+            hora_inicio="09:00",
+            hora_fim="10:00",
+            sala=self.sala,
+            organizador=self.usuario.email,
+            organizador_usuario=self.usuario,
+        )
+        reuniao.participantes.add(participante)
+
+        resumo = notificar_reuniao_criada_whatsapp(reuniao.pk)
+
+        self.assertEqual(resumo["falhas"], 1)
+        self.assertEqual(
+            resumo["erros"],
+            [
+                {
+                    "status_http": 401,
+                    "mensagem": "token invalido ou expirado (codigo 190)",
+                }
+            ],
+        )
 
     @patch("sistema.integracoes.whatsapp.enviar_template_whatsapp")
     def test_varios_participantes_enviam_somente_para_telefones_validos(self, enviar_mock):

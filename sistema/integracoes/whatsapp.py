@@ -168,7 +168,13 @@ def enviar_template_whatsapp(telefone, parametros=None):
 
 
 def notificar_reuniao_criada_whatsapp(reuniao_id):
-    resumo = {"enviados": 0, "ignorados": 0, "falhas": 0, "mensagens_ids": []}
+    resumo = {
+        "enviados": 0,
+        "ignorados": 0,
+        "falhas": 0,
+        "mensagens_ids": [],
+        "erros": [],
+    }
     if not settings.WHATSAPP_CLOUD_API_ENABLED:
         return resumo
 
@@ -179,6 +185,9 @@ def notificar_reuniao_criada_whatsapp(reuniao_id):
     except Reuniao.DoesNotExist:
         logger.error("WhatsApp: reuniao %s nao encontrada apos o commit", reuniao_id)
         resumo["falhas"] += 1
+        resumo["erros"].append(
+            {"status_http": None, "mensagem": "reuniao nao encontrada apos o commit"}
+        )
         return resumo
 
     telefones_processados = set()
@@ -209,6 +218,12 @@ def notificar_reuniao_criada_whatsapp(reuniao_id):
             )
         else:
             resumo["falhas"] += 1
+            resumo["erros"].append(
+                {
+                    "status_http": resultado.status_http,
+                    "mensagem": resultado.erro,
+                }
+            )
             logger.error(
                 "WhatsApp: falha ao enviar reuniao %s para %s, HTTP %s: %s",
                 reuniao.pk,

@@ -459,6 +459,7 @@ def nova_reuniao(request):
 
         form = ReuniaoForm(request.POST)
         if form.is_valid():
+            resultado_whatsapp = {}
             with transaction.atomic():
                 reuniao = form.save(commit=False)
                 reuniao.organizador_usuario = request.user
@@ -476,13 +477,21 @@ def nova_reuniao(request):
                     "Reuniao criada.",
                 )
                 notificar_participantes_reuniao(reuniao, "criacao", request.user)
-                agendar_whatsapp_reuniao_criada(reuniao)
+                agendar_whatsapp_reuniao_criada(reuniao, resultado_whatsapp)
 
             erros_avisos = []
             try:
                 enviar_email_reuniao(reuniao, tipo="criacao")
             except Exception as erro:
                 erros_avisos.append(f"e-mail aos participantes: {erro}")
+
+            if resultado_whatsapp.get("falhas"):
+                primeiro_erro = (resultado_whatsapp.get("erros") or [{}])[0]
+                status_http = primeiro_erro.get("status_http")
+                detalhe = primeiro_erro.get("mensagem") or "falha nao informada pela Meta"
+                if status_http:
+                    detalhe = f"HTTP {status_http}: {detalhe}"
+                erros_avisos.append(f"WhatsApp: {detalhe}")
 
             if erros_avisos:
                 messages.warning(
