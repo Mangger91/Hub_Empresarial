@@ -217,6 +217,11 @@
         {% if form.status.errors %}<div class="erro">{{ form.status.errors|join:", " }}</div>{% endif %}
     </div>
     <div class="field-span">
+        <label for="{{ form.responsavel_ata.id_for_label }}">{{ form.responsavel_ata.label }}</label>
+        {{ form.responsavel_ata }}
+        {% if form.responsavel_ata.errors %}<div class="erro">{{ form.responsavel_ata.errors|join:", " }}</div>{% endif %}
+    </div>
+    <div class="field-span">
         <label for="{{ form.descricao.id_for_label }}">{{ form.descricao.label }}</label>
         {{ form.descricao }}
         {% if form.descricao.errors %}<div class="erro">{{ form.descricao.errors|join:", " }}</div>{% endif %}

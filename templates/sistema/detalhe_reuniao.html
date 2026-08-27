@@ -33,6 +33,7 @@
             <div><strong>Horario</strong><span>{{ reuniao.hora_inicio|time:"H:i" }} as {{ reuniao.hora_fim|time:"H:i" }}</span></div>
             <div><strong>Sala</strong><span>{{ reuniao.sala.nome }}</span></div>
             <div><strong>Organizador</strong><span>{{ reuniao.nome_organizador }}</span></div>
+            <div><strong>Responsavel pela ata</strong><span>{{ reuniao.responsavel_ata|default:"Nao informado" }}</span></div>
         </div>
     </article>
 

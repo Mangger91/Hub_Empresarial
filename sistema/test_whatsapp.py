@@ -28,11 +28,12 @@ CONFIGURACAO_WHATSAPP_TESTE = {
     "WHATSAPP_CLOUD_API_TEMPLATE_NAME": "aviso_reuniao",
     "WHATSAPP_CLOUD_API_TEMPLATE_LANGUAGE": "pt_BR",
     "WHATSAPP_CLOUD_API_TEMPLATE_FIELDS": [
-        "nome",
         "data",
         "horario",
         "assunto",
         "local",
+        "participantes",
+        "responsavel_ata",
     ],
     "WHATSAPP_CLOUD_API_DEFAULT_COUNTRY_CODE": "55",
     "WHATSAPP_CLOUD_API_REQUEST_TIMEOUT": 2,
@@ -66,7 +67,14 @@ class ClienteWhatsAppCloudApiTests(TestCase):
 
         resultado = enviar_template_whatsapp(
             "5541999999999",
-            ["Ana", "01/09/2026", "09:00 as 10:00", "Planejamento", "Sala 1"],
+            [
+                "01/09/2026",
+                "09:00 às 10:00",
+                "Planejamento",
+                "Sala 1",
+                "Ana, Bruno",
+                "Lidiane",
+            ],
         )
 
         self.assertTrue(resultado.sucesso)
@@ -106,6 +114,7 @@ class ReuniaoWhatsAppTests(TestCase):
             "hora_fim": "10:00",
             "sala": str(self.sala.pk),
             "status": Reuniao.Status.AGENDADA,
+            "responsavel_ata": "Lidiane",
             "participantes": [str(participante.pk) for participante in participantes],
         }
 
@@ -134,6 +143,22 @@ class ReuniaoWhatsAppTests(TestCase):
         self.assertEqual(resposta.status_code, 302)
         self.assertTrue(Reuniao.objects.filter(titulo="Reuniao de planejamento").exists())
         self.assertEqual(len(mail.outbox), 1)
+        email = mail.outbox[0]
+        data_formatada = (timezone.localdate() + timedelta(days=2)).strftime("%d/%m/%Y")
+        self.assertIn(
+            f"SEGUE ABAIXO LEMBRETE DE REUNIÕES DO DIA {data_formatada}.",
+            email.body,
+        )
+        self.assertIn("Horário: 09:00 às 10:00", email.body)
+        self.assertIn("Assunto: Reuniao de planejamento", email.body)
+        self.assertIn("Local: Sala Diretoria", email.body)
+        self.assertIn("Participantes: Ana", email.body)
+        self.assertIn(
+            "Responsável pela elaboração e entrega da ata: Lidiane",
+            email.body,
+        )
+        self.assertIn("FALAVINHA INTELIGÊNCIA CONTÁBIL", email.body)
+        self.assertNotIn("ROBERTO MANGGER JUNIOR", email.body)
         enviar_mock.assert_called_once()
         self.assertEqual(enviar_mock.call_args.args[0], "5541999999999")
 
@@ -389,11 +414,12 @@ class ReuniaoWhatsAppTests(TestCase):
         enviar_mock.assert_called_once_with(
             "5541933332222",
             [
-                "Joao",
                 (timezone.localdate() + timedelta(days=2)).strftime("%d/%m/%Y"),
-                "09:00 as 10:00",
+                "09:00 às 10:00",
                 "Reuniao de planejamento",
-                "Segundo andar",
+                "Sala Diretoria",
+                "Joao",
+                "Lidiane",
             ],
         )
 

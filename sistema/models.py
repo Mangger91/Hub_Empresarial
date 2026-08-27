@@ -257,6 +257,11 @@ class Reuniao(models.Model):
     )
     sala = models.ForeignKey(Sala, on_delete=models.PROTECT, related_name="reunioes")
     participantes = models.ManyToManyField(Participante, related_name="reunioes", blank=True)
+    responsavel_ata = models.CharField(
+        "Responsavel pela elaboracao e entrega da ata",
+        max_length=150,
+        blank=True,
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,

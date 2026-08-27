@@ -56,6 +56,7 @@ class ReuniaoForm(forms.ModelForm):
             "hora_fim",
             "sala",
             "participantes",
+            "responsavel_ata",
             "status",
         ]
         widgets = {
@@ -73,6 +74,12 @@ class ReuniaoForm(forms.ModelForm):
             "hora_inicio": forms.TimeInput(attrs={**FORM_CONTROL, "type": "time"}),
             "hora_fim": forms.TimeInput(attrs={**FORM_CONTROL, "type": "time"}),
             "sala": forms.Select(attrs=FORM_CONTROL),
+            "responsavel_ata": forms.TextInput(
+                attrs={
+                    **FORM_CONTROL,
+                    "placeholder": "Ex.: Lidiane",
+                }
+            ),
             "status": forms.Select(attrs=FORM_CONTROL),
         }
 

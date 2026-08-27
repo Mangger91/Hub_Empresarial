@@ -1,6 +1,6 @@
 # WhatsApp Cloud API para reuniões
 
-Esta integração usa exclusivamente a WhatsApp Cloud API oficial da Meta. A chamada sai do backend Django depois que uma nova reunião é confirmada no banco. Edição, cancelamento, reenvio e consultas GET não disparam WhatsApp.
+Esta integração usa exclusivamente a WhatsApp Cloud API oficial da Meta. A chamada sai do backend Django depois que uma nova reunião é confirmada no banco. O botão de reenvio também tenta o WhatsApp; edição e cancelamento não disparam uma nova mensagem automaticamente.
 
 Uma falha da Meta é registrada no log, com o telefone mascarado, e não desfaz a reunião nem interrompe o e-mail. Neste MVP o envio é síncrono; para um volume alto de participantes, o passo seguinte recomendado é usar uma fila de tarefas com worker persistente.
 
@@ -32,9 +32,9 @@ DJANGO_WHATSAPP_CLOUD_API_VERSION=vXX.X
 DJANGO_WHATSAPP_CLOUD_API_ACCESS_TOKEN=token_fornecido_pela_meta
 DJANGO_WHATSAPP_CLOUD_API_PHONE_NUMBER_ID=id_do_numero_de_teste
 DJANGO_WHATSAPP_CLOUD_API_BUSINESS_ACCOUNT_ID=id_da_conta_whatsapp_business
-DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_NAME=hello_world
-DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_LANGUAGE=en_US
-DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_FIELDS=
+DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_NAME=lembrete_reuniao
+DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_LANGUAGE=pt_BR
+DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_FIELDS=data,horario,assunto,local,participantes,responsavel_ata
 DJANGO_WHATSAPP_CLOUD_API_DEFAULT_COUNTRY_CODE=55
 DJANGO_WHATSAPP_CLOUD_API_REQUEST_TIMEOUT=10
 ```
@@ -55,30 +55,27 @@ Uma resposta HTTP 2xx com um identificador `wamid...` confirma que a Cloud API a
 
 ## 5. Criar o template de reunião
 
-No WhatsApp Manager da conta, abra `Account tools > Message templates` e crie um template, por exemplo `aviso_reuniao`, com idioma `pt_BR`. Um corpo compatível com o sistema é:
+No WhatsApp Manager da conta, abra `Account tools > Message templates` e crie o template `lembrete_reuniao`, com idioma `pt_BR`. Use este corpo:
 
 ```text
-Olá, {{1}}!
+📌 SEGUE ABAIXO LEMBRETE DE REUNIÕES DO DIA {{1}}.
 
-Uma nova reunião foi agendada.
-
-Data: {{2}}
-Horário: {{3}}
-Assunto: {{4}}
-Local: {{5}}
-
-Até lá!
+Horário: {{2}}
+Assunto: {{3}}
+Local: {{4}}
+Participantes: {{5}}
+Responsável pela elaboração e entrega da ata: {{6}}
 ```
 
 Depois da aprovação, configure:
 
 ```env
-DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_NAME=aviso_reuniao
+DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_NAME=lembrete_reuniao
 DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_LANGUAGE=pt_BR
-DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_FIELDS=nome,data,horario,assunto,local
+DJANGO_WHATSAPP_CLOUD_API_TEMPLATE_FIELDS=data,horario,assunto,local,participantes,responsavel_ata
 ```
 
-A ordem dos campos deve ser a mesma dos parâmetros `{{1}}` a `{{5}}`. Os campos aceitos atualmente são `nome`, `data`, `horario`, `assunto`, `local` e `descricao`.
+A ordem dos campos deve ser a mesma dos parâmetros `{{1}}` a `{{6}}`. Os campos aceitos atualmente são `nome`, `data`, `horario`, `assunto`, `local`, `participantes`, `responsavel_ata` e `descricao`.
 
 ## 6. API e webhook
 
@@ -99,13 +96,13 @@ Quando o webhook for implementado, configure em `WhatsApp > Configuration` uma U
 
 - `sistema/integracoes/whatsapp.py`: normalização, cliente da Meta e processamento por participante.
 - `sistema/modulos/agenda/services.py`: registra o envio com `transaction.on_commit`.
-- `sistema/modulos/agenda/views.py`: criação transacional da reunião; não contém código HTTP.
+- `sistema/modulos/agenda/views.py`: criação transacional e reenvio dos avisos; não contém código HTTP.
 - `sistema/modulos/agenda/forms.py`: valida e normaliza o telefone manual.
 - `config/settings/base.py`: centraliza a configuração.
 - `.env.example`: lista as variáveis sem credenciais.
 - `sistema/test_whatsapp.py`: cobre normalização, criação, ausência de telefone, erro e vários participantes.
 
-Não foi criada migration porque o campo opcional `Participante.whatsapp` já existia no banco.
+O campo opcional `Reuniao.responsavel_ata` e criado pela migration `0024_reuniao_responsavel_ata`.
 
 ## 8. Executar os testes
 

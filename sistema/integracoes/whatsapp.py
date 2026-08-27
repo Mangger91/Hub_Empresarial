@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 
 from sistema.models import Reuniao
+from sistema.utils import montar_dados_aviso_reuniao
 
 
 logger = logging.getLogger(__name__)
@@ -75,16 +76,10 @@ def _configuracao_incompleta():
 
 
 def _montar_parametros_template(reuniao, participante):
-    local = reuniao.sala.localizacao or reuniao.sala.nome
+    dados_aviso = montar_dados_aviso_reuniao(reuniao)
     valores = {
         "nome": participante.nome,
-        "data": reuniao.data.strftime("%d/%m/%Y"),
-        "horario": (
-            f"{reuniao.hora_inicio.strftime('%H:%M')} as "
-            f"{reuniao.hora_fim.strftime('%H:%M')}"
-        ),
-        "assunto": reuniao.titulo,
-        "local": local,
+        **dados_aviso,
         "descricao": reuniao.descricao or "Sem descricao informada",
     }
 

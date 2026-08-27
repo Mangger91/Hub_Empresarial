@@ -19,6 +19,34 @@ def _formatar_texto_email(texto):
     return escape(texto or "")
 
 
+def montar_dados_aviso_reuniao(reuniao):
+    participantes = list(reuniao.participantes.all())
+    nomes_participantes = ", ".join(
+        participante.nome.strip()
+        for participante in participantes
+        if participante.nome and participante.nome.strip()
+    )
+    return {
+        "data": reuniao.data.strftime("%d/%m/%Y"),
+        "horario": (
+            f"{reuniao.hora_inicio.strftime('%H:%M')} às "
+            f"{reuniao.hora_fim.strftime('%H:%M')}"
+        ),
+        "assunto": reuniao.titulo,
+        "local": reuniao.sala.nome,
+        "participantes": nomes_participantes or "Não informados",
+        "responsavel_ata": reuniao.responsavel_ata.strip() or "Não informado",
+    }
+
+
+def _cabecalho_aviso_reuniao(tipo, data_formatada):
+    if tipo == "cancelamento":
+        return f"AVISO DE CANCELAMENTO DA REUNIÃO DO DIA {data_formatada}."
+    if tipo == "edicao":
+        return f"SEGUE ABAIXO ATUALIZAÇÃO DA REUNIÃO DO DIA {data_formatada}."
+    return f"SEGUE ABAIXO LEMBRETE DE REUNIÕES DO DIA {data_formatada}."
+
+
 def _escapar_ics(texto):
     return (
         (texto or "")
@@ -96,8 +124,7 @@ def _montar_assinatura_html():
     if not ASSINATURA_PATH.exists():
         return """
         <div style="margin-top:28px; padding-top:18px; border-top:1px solid #d9d9d9; font-size:13px; color:#5f6368;">
-            <div style="font-weight:700; color:#202124;">ROBERTO MANGGER JUNIOR | SISTEMAS</div>
-            <div>Falavinha Inteligência Contábil</div>
+            <div style="font-weight:700; color:#202124;">FALAVINHA INTELIGÊNCIA CONTÁBIL</div>
             <div>Rua Camões, 1753 - Hugo Lange - Curitiba - PR</div>
             <div>(41) 3030 7575</div>
             <div>www.falavinhacontabil.com.br</div>
@@ -109,7 +136,7 @@ def _montar_assinatura_html():
     <div style="margin-top:28px; padding-top:18px; border-top:1px solid #d9d9d9;">
         <img
             src="cid:{ASSINATURA_CID}"
-            alt="Assinatura Roberto Mangger Junior"
+            alt="Assinatura Falavinha Inteligencia Contabil"
             style="display:block; width:100%; max-width:820px; height:auto; border:0; outline:none; text-decoration:none;"
         >
     </div>
@@ -119,8 +146,7 @@ def _montar_assinatura_html():
 def _montar_assinatura_texto():
     return (
         "\n\n--\n"
-        "ROBERTO MANGGER JUNIOR | SISTEMAS\n"
-        "Falavinha Inteligência Contábil\n"
+        "FALAVINHA INTELIGÊNCIA CONTÁBIL\n"
         "Rua Camões, 1753 - Hugo Lange - Curitiba - PR\n"
         "(41) 3030 7575\n"
         "www.falavinhacontabil.com.br\n"
@@ -162,57 +188,29 @@ def enviar_email_reuniao(reuniao, tipo="criacao"):
     if not emails:
         return False
 
-    data_formatada = reuniao.data.strftime("%d/%m/%Y")
-    hora_inicio = reuniao.hora_inicio.strftime("%H:%M")
-    hora_fim = reuniao.hora_fim.strftime("%H:%M")
-    organizador = getattr(reuniao, "nome_organizador", None) or reuniao.organizador or "Nao informado"
-    localizacao = reuniao.sala.localizacao or "Não informada"
-    descricao = reuniao.descricao or "Sem descrição informada."
+    dados = montar_dados_aviso_reuniao(reuniao)
+    cabecalho = _cabecalho_aviso_reuniao(tipo, dados["data"])
 
-    if tipo == "criacao":
-        assunto = f"Convite de reunião: {reuniao.titulo}"
-        titulo_acao = "Uma nova reunião foi agendada"
-        intro_texto = "Você recebeu um convite de reunião. Se o seu cliente de e-mail suportar convites de calendário, basta aceitar para salvar o compromisso na sua agenda."
-        badge_texto = "Convite de calendário"
+    if tipo == "cancelamento":
+        assunto = f"Cancelamento de reunião: {reuniao.titulo}"
+        badge_texto = "Reuniao cancelada"
     elif tipo == "edicao":
         assunto = f"Atualização de reunião: {reuniao.titulo}"
-        titulo_acao = "Uma reunião foi atualizada"
-        intro_texto = "Os dados desta reunião foram atualizados. Aceite ou atualize o convite para refletir as mudanças no seu calendário."
-        badge_texto = "Convite atualizado"
-    elif tipo == "cancelamento":
-        assunto = f"Cancelamento de reunião: {reuniao.titulo}"
-        titulo_acao = "Uma reunião foi cancelada"
-        intro_texto = "Esta mensagem confirma o cancelamento da reunião. O convite de calendário acompanha esta atualização."
-        badge_texto = "Convite cancelado"
+        badge_texto = "Reuniao atualizada"
     else:
-        assunto = f"Atualização de reunião: {reuniao.titulo}"
-        titulo_acao = "Houve uma atualização na reunião"
-        intro_texto = "Confira abaixo os dados mais recentes da reunião."
-        badge_texto = "Atualização"
-
-    linhas_participantes = "\n".join(
-        f"- {participante.nome} ({participante.email})" for participante in participantes
-    ) or "Nenhum participante informado."
+        assunto = f"Lembrete de reunião: {reuniao.titulo}"
+        badge_texto = "Lembrete de reuniao"
 
     mensagem_texto = (
-        f"{titulo_acao}\n\n"
-        f"{intro_texto}\n\n"
-        f"Título: {reuniao.titulo}\n"
-        f"Descrição: {descricao}\n"
-        f"Data: {data_formatada}\n"
-        f"Horário: {hora_inicio} às {hora_fim}\n"
-        f"Sala: {reuniao.sala.nome}\n"
-        f"Localização: {localizacao}\n"
-        f"Organizador: {organizador}\n"
-        f"Status: {reuniao.get_status_display()}\n\n"
-        f"Participantes:\n{linhas_participantes}"
+        f"{cabecalho}\n\n"
+        f"Horário: {dados['horario']}\n"
+        f"Assunto: {dados['assunto']}\n"
+        f"Local: {dados['local']}\n"
+        f"Participantes: {dados['participantes']}\n"
+        "Responsável pela elaboração e entrega da ata: "
+        f"{dados['responsavel_ata']}"
         f"{_montar_assinatura_texto()}"
     )
-
-    lista_participantes_html = "".join(
-        f"<li style='margin-bottom:6px; color:#202124;'>{_formatar_texto_email(participante.nome)} ({_formatar_texto_email(participante.email)})</li>"
-        for participante in participantes
-    ) or "<li style='color:#202124;'>Nenhum participante informado.</li>"
 
     mensagem_html = f"""
     <html>
@@ -228,62 +226,37 @@ def enviar_email_reuniao(reuniao, tipo="criacao"):
                         <div style="display:inline-block; margin-bottom:16px; padding:6px 12px; border-radius:999px; background:#e8f0fe; color:#1a73e8; font-size:12px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase;">
                             {badge_texto}
                         </div>
-                        <h2 style="margin:0 0 12px; font-size:30px; line-height:1.25; color:#202124;">{_formatar_texto_email(titulo_acao)}</h2>
-                        <p style="margin:0; font-size:16px; line-height:1.7; color:#5f6368;">
-                            {_formatar_texto_email(intro_texto)}
-                        </p>
+                        <h2 style="margin:0; font-size:24px; line-height:1.35; color:#202124;">📌 {_formatar_texto_email(cabecalho)}</h2>
                     </td>
                 </tr>
                 <tr>
                     <td style="padding:0 36px 26px;">
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
                             <tr>
-                                <td style="padding:12px 0; width:180px; font-weight:700; color:#1a73e8; vertical-align:top;">Título</td>
-                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(reuniao.titulo)}</td>
+                                <td style="padding:12px 0; width:230px; font-weight:700; color:#1a73e8; vertical-align:top;">Horário</td>
+                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(dados['horario'])}</td>
                             </tr>
                             <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Descrição</td>
-                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(descricao)}</td>
+                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Assunto</td>
+                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(dados['assunto'])}</td>
                             </tr>
                             <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Data</td>
-                                <td style="padding:12px 0; color:#202124;">{data_formatada}</td>
+                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Local</td>
+                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(dados['local'])}</td>
                             </tr>
                             <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Horário</td>
-                                <td style="padding:12px 0; color:#202124;">{hora_inicio} às {hora_fim}</td>
+                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Participantes</td>
+                                <td style="padding:12px 0; color:#202124; line-height:1.6;">{_formatar_texto_email(dados['participantes'])}</td>
                             </tr>
                             <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Sala</td>
-                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(reuniao.sala.nome)}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Localização</td>
-                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(localizacao)}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Organizador</td>
-                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(organizador)}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Status</td>
-                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(reuniao.get_status_display())}</td>
+                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Responsável pela elaboração e entrega da ata</td>
+                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(dados['responsavel_ata'])}</td>
                             </tr>
                         </table>
 
-                        <div style="margin-top:24px; padding:20px 22px; border:1px solid #dadce0; border-radius:12px; background:#fafafa;">
-                            <div style="font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:#5f6368; margin-bottom:12px;">
-                                Participantes
-                            </div>
-                            <ul style="margin:0; padding-left:18px;">
-                                {lista_participantes_html}
-                            </ul>
-                        </div>
-
-                        <div style="margin-top:24px; padding:18px 20px; border-left:4px solid #1a73e8; background:#f8fbff; color:#5f6368; line-height:1.65;">
-                            <strong style="display:block; margin-bottom:8px; color:#202124;">Mensagem automática</strong>
-                            Este é um disparo automático do sistema de agenda de reuniões. O convite de calendário segue neste e-mail para facilitar o aceite e o salvamento do compromisso na agenda.
-                        </div>
+                        <p style="margin:22px 0 0; padding:16px 18px; border-left:4px solid #1a73e8; background:#f8fbff; color:#5f6368; line-height:1.6;">
+                            Mensagem automática. O convite de calendário segue anexado para facilitar o aceite e o salvamento do compromisso.
+                        </p>
 
                         {_montar_assinatura_html()}
                     </td>
