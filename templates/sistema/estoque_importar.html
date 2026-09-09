@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Importar Estoque ADM{% endblock %}
-{% block page_title %}Importar Estoque ADM{% endblock %}
+{% block title %}{{ modulo_titulo }}{% endblock %}
+{% block page_title %}{{ modulo_titulo }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -40,15 +40,45 @@
 <section class="card form-card">
     <form method="post" enctype="multipart/form-data" class="form-stack">
         {% csrf_token %}
+        {% if tipo_importacao == "ti" %}
+        <div class="import-warning">
+            Para computadores, use colunas como Nome da Maquina, Usuario Logado, Setor, Endereco IP, Endereco MAC, Processador, Memoria RAM, Armazenamento, Status e Data da Coleta. Para monitores, use Patrimonio, Marca, Polegadas e Usuario.
+        </div>
+        {% else %}
         <div class="import-warning">
             Para evitar timeout no Vercel, importe uma planilha por vez. Primeiro envie a planilha de Copa com a opcao de limpar marcada. Depois envie a planilha de Material de Expediente com a opcao de limpar desmarcada.
         </div>
+        {% endif %}
 
         {% if form.non_field_errors %}
         <div class="erro">{{ form.non_field_errors|join:", " }}</div>
         {% endif %}
 
         <div class="form-grid">
+            {% if tipo_importacao == "ti" %}
+            <div>
+                <label for="{{ form.tipo_equipamento.id_for_label }}">{{ form.tipo_equipamento.label }}</label>
+                {{ form.tipo_equipamento }}
+                {% if form.tipo_equipamento.errors %}<div class="erro">{{ form.tipo_equipamento.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label for="{{ form.situacao.id_for_label }}">{{ form.situacao.label }}</label>
+                {{ form.situacao }}
+                {% if form.situacao.errors %}<div class="erro">{{ form.situacao.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label class="checkbox-label" for="{{ form.substituir_itens.id_for_label }}">
+                    {{ form.substituir_itens }}
+                    <span>{{ form.substituir_itens.label }}</span>
+                </label>
+                {% if form.substituir_itens.errors %}<div class="erro">{{ form.substituir_itens.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label for="{{ form.arquivo.id_for_label }}">{{ form.arquivo.label }}</label>
+                {{ form.arquivo }}
+                {% if form.arquivo.errors %}<div class="erro">{{ form.arquivo.errors|join:", " }}</div>{% endif %}
+            </div>
+            {% else %}
             <div>
                 <label class="checkbox-label" for="{{ form.substituir_estoque.id_for_label }}">
                     {{ form.substituir_estoque }}
@@ -66,6 +96,7 @@
                 {{ form.arquivo_expediente }}
                 {% if form.arquivo_expediente.errors %}<div class="erro">{{ form.arquivo_expediente.errors|join:", " }}</div>{% endif %}
             </div>
+            {% endif %}
         </div>
 
         <div class="import-actions">

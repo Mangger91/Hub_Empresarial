@@ -12,11 +12,11 @@ from .modulos.core.views import (
     abrir_notificacao,
     avaliacao_colaboradores,
     central_notificacoes,
-    chamados_ti,
     dashboard,
     inicio,
     modulo_placeholder,
 )
+from .modulos.chamados_ti.views import chamados_ti
 from .modulos.estoque.views import (
     categorias_estoque,
     detalhe_item_estoque,

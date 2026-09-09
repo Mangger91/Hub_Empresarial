@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{{ modulo_titulo }}{% endblock %}
+{% block page_title %}{{ modulo_titulo }}{% endblock %}
+
+{% block content %}
+<section class="module-header">
+    <div>
+        <span class="section-kicker">{{ papel_modulo_label }}</span>
+        <h2>{{ modulo_titulo }}</h2>
+        <p>{{ modulo_descricao }}</p>
+    </div>
+    <a href="{% url 'chamados_ti' %}" class="btn btn-secondary">Voltar</a>
+</section>
+
+{% if acesso_negado %}
+<div class="alert-banner">
+    Você não possui permissão para acessar essa área, contate o administrador.
+</div>
+{% else %}
+<section class="card form-card">
+    <form method="post" enctype="multipart/form-data" class="form-stack">
+        {% csrf_token %}
+        <div class="suggestion-box">
+            A importação usa a aba Atendimentos e espera colunas como ID, Data, Atendente, Setor, Colaborador, Prioridade, Status, Descrição da solicitação, Solução aplicada, horários, tempo e observações.
+        </div>
+        {% if form.non_field_errors %}<div class="erro">{{ form.non_field_errors|join:", " }}</div>{% endif %}
+        <div class="form-grid">
+            <div>
+                <label class="checkbox-label" for="{{ form.substituir_chamados.id_for_label }}">
+                    {{ form.substituir_chamados }}
+                    <span>{{ form.substituir_chamados.label }}</span>
+                </label>
+                {% if form.substituir_chamados.errors %}<div class="erro">{{ form.substituir_chamados.errors|join:", " }}</div>{% endif %}
+            </div>
+            <div>
+                <label for="{{ form.arquivo.id_for_label }}">{{ form.arquivo.label }}</label>
+                {{ form.arquivo }}
+                {% if form.arquivo.errors %}<div class="erro">{{ form.arquivo.errors|join:", " }}</div>{% endif %}
+            </div>
+        </div>
+        <div class="form-inline">
+            <button type="submit" class="btn btn-primary">Importar chamados</button>
+            <a href="{% url 'chamados_ti' %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

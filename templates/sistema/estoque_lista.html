@@ -204,7 +204,7 @@
     }
 
     .stock-table th {
-        background: #f8fafc;
+        background: var(--table-head-bg);
         color: var(--muted);
         font-size: 0.74rem;
         font-weight: 800;
@@ -222,7 +222,56 @@
     }
 
     .stock-table tbody tr:hover {
-        background: #f8fbff;
+        background: var(--table-row-hover);
+    }
+
+    .stock-table.excel-like {
+        font-size: 0.84rem;
+        min-width: 1420px;
+    }
+
+    .stock-table.excel-like th,
+    .stock-table.excel-like td {
+        border: 1px solid #cbd5e1;
+        padding: 8px 9px;
+        vertical-align: top;
+    }
+
+    .stock-table.excel-like th {
+        background: var(--table-head-bg);
+        color: var(--muted);
+    }
+
+    .stock-table.excel-like td:last-child,
+    .stock-table.excel-like th:last-child {
+        text-align: left;
+    }
+
+    .stock-table.excel-like tbody tr:nth-child(even) {
+        background: var(--surface-soft);
+    }
+
+    .excel-cell-main {
+        color: var(--text);
+        display: block;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .excel-cell-muted {
+        color: var(--muted);
+        display: block;
+        font-size: 0.78rem;
+        margin-top: 2px;
+        white-space: nowrap;
+    }
+
+    .excel-actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 6px;
+        min-width: 186px;
     }
 
     .stock-number {
@@ -307,6 +356,79 @@
         color: var(--danger);
     }
 
+    .ti-stock-menu {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .ti-stock-links {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
+    .ti-stock-link {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        font-weight: 800;
+        padding: 8px 10px;
+        text-decoration: none;
+    }
+
+    .ti-stock-link:hover,
+    .ti-stock-link.active {
+        background: var(--surface-tint);
+        border-color: var(--accent);
+        color: var(--accent-strong);
+    }
+
+    .stock-modal {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-md);
+        color: var(--text);
+        max-width: min(420px, calc(100vw - 28px));
+        padding: 0;
+        width: 100%;
+    }
+
+    .stock-modal::backdrop {
+        background: rgba(7, 16, 31, 0.52);
+    }
+
+    .stock-modal-header {
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        padding: 14px;
+    }
+
+    .stock-modal-header h3 {
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    .stock-modal-body {
+        display: grid;
+        gap: 8px;
+        padding: 14px;
+    }
+
+    .stock-modal-close {
+        min-height: 32px;
+        width: 34px;
+    }
+
+    .ti-stock-table-shell {
+        margin-top: 14px;
+    }
+
     @media (max-width: 980px) {
         .stock-dashboard-grid {
             grid-template-columns: 1fr;
@@ -318,6 +440,10 @@
         .stock-table-header {
             align-items: stretch;
             flex-direction: column;
+        }
+
+        .ti-stock-menu .btn {
+            width: 100%;
         }
     }
 </style>
@@ -333,11 +459,11 @@
     <div class="hero-actions">
         <button type="button" class="btn btn-secondary" onclick="history.back()">Voltar</button>
         {% if not acesso_negado %}
-        <a href="{% url 'relatorio_estoque' modulo_codigo %}" class="btn btn-secondary">Relatorio e PDF</a>
+        <a href="{% url 'relatorio_estoque' modulo_codigo %}" class="btn btn-secondary">Relatório e PDF</a>
         <a href="{% url 'categorias_estoque' modulo_codigo %}" class="btn btn-secondary">Categorias</a>
         {% endif %}
         {% if permite_importacao_planilha %}
-        <a href="{% url 'importar_estoque_adm' %}" class="btn btn-secondary">Importar planilhas</a>
+        <a href="{% url rota_importacao_estoque %}" class="btn btn-secondary">Importar planilhas</a>
         {% endif %}
         {% if mostrar_acoes %}
         <a href="{% url 'novo_item_estoque' modulo_codigo %}" class="btn btn-primary">Novo item</a>
@@ -347,9 +473,52 @@
 
 {% if acesso_negado %}
 <div class="alert-banner">
-    Voce nao possui permissao para acessar essa area, contate o administrador.
+    Você não possui permissão para acessar essa área, contate o administrador.
 </div>
 {% else %}
+{% if submenus_estoque_ti %}
+<section class="ti-stock-menu" aria-label="Submenus do Estoque TI">
+    {% for grupo in submenus_estoque_ti %}
+    <button type="button" class="btn btn-secondary" data-stock-modal-open="stock-modal-{{ forloop.counter }}">
+        {{ grupo.titulo }}
+    </button>
+    <dialog class="stock-modal" id="stock-modal-{{ forloop.counter }}" aria-labelledby="stock-modal-title-{{ forloop.counter }}">
+        <div class="stock-modal-header">
+            <h3 id="stock-modal-title-{{ forloop.counter }}">{{ grupo.titulo }}</h3>
+            <button type="button" class="btn btn-secondary stock-icon-action stock-modal-close" data-stock-modal-close aria-label="Fechar">×</button>
+        </div>
+        <div class="stock-modal-body">
+            <div class="ti-stock-links">
+            {% for categoria_codigo, categoria_nome in grupo.itens %}
+            <a
+                href="?situacao_ti={{ grupo.situacao }}&categoria={{ categoria_codigo }}#lista-itens-estoque"
+                class="ti-stock-link {% if filtros.situacao_ti == grupo.situacao and filtros.categoria == categoria_codigo %}active{% endif %}"
+            >{{ categoria_nome }}</a>
+            {% endfor %}
+            </div>
+        </div>
+    </dialog>
+    {% endfor %}
+    {% if mostrar_acoes %}
+    <button type="button" class="btn btn-secondary" data-stock-modal-open="stock-modal-opcoes">
+        Opções
+    </button>
+    <dialog class="stock-modal" id="stock-modal-opcoes" aria-labelledby="stock-modal-title-opcoes">
+        <div class="stock-modal-header">
+            <h3 id="stock-modal-title-opcoes">Opções</h3>
+            <button type="button" class="btn btn-secondary stock-icon-action stock-modal-close" data-stock-modal-close aria-label="Fechar">×</button>
+        </div>
+        <div class="stock-modal-body">
+            <div class="ti-stock-links">
+            <a href="{% url 'categorias_estoque' modulo_codigo %}" class="ti-stock-link">Adicionar opções</a>
+            <a href="{% url 'novo_item_estoque' modulo_codigo %}" class="ti-stock-link">Cadastrar equipamento</a>
+            <a href="{% url 'importar_estoque_ti' %}" class="ti-stock-link">Importar arquivo</a>
+            </div>
+        </div>
+    </dialog>
+    {% endif %}
+</section>
+{% endif %}
 <section class="stock-overview">
     <article class="stock-kpi success">
         <strong>Itens cadastrados</strong>
@@ -359,10 +528,12 @@
         <strong>Saldo total</strong>
         <span>{{ painel_estoque.saldo_total }}</span>
     </article>
+    {% if mostrar_valor_estoque %}
     <article class="stock-kpi">
         <strong>Valor estimado</strong>
         <span>R$ {{ painel_estoque.valor_estimado|floatformat:2 }}</span>
     </article>
+    {% endif %}
     <article class="stock-kpi warning">
         <strong>Em atencao</strong>
         <span>{{ painel_estoque.baixo_estoque }}</span>
@@ -373,12 +544,13 @@
     </article>
 </section>
 
+{% if mostrar_paineis_apoio_estoque %}
 <section class="stock-dashboard-grid">
     <article class="stock-panel">
         <div class="stock-panel-header">
             <div>
                 <h3>Resumo por categoria</h3>
-                <p>Distribuicao dos itens e saldo atual por grupo.</p>
+                <p>Distribuição dos itens e saldo atual por grupo.</p>
             </div>
         </div>
         {% if painel_estoque.categorias %}
@@ -400,7 +572,7 @@
         <div class="stock-panel-header">
             <div>
                 <h3>Itens em atencao</h3>
-                <p>Prioridade para reposicao ou conferencia.</p>
+                <p>Prioridade para reposição ou conferência.</p>
             </div>
         </div>
         {% if itens_criticos %}
@@ -409,7 +581,7 @@
             <a href="{% url 'detalhe_item_estoque' item.pk %}" class="stock-critical-row">
                 <div>
                     <strong>{{ item.nome }}</strong>
-                    <span>Saldo {{ item.quantidade_atual }} {{ item.unidade_medida }} | minimo {{ item.estoque_minimo }}</span>
+                    <span>Saldo {{ item.quantidade_atual }} {{ item.unidade_medida }} | mínimo {{ item.estoque_minimo }}</span>
                 </div>
                 {% if item.quantidade_atual <= 0 %}
                 <span class="stock-alert-pill danger">Sem estoque</span>
@@ -420,16 +592,17 @@
             {% endfor %}
         </div>
         {% else %}
-        <div class="empty-box">Nenhum item abaixo do minimo neste estoque.</div>
+        <div class="empty-box">Nenhum item abaixo do mínimo neste estoque.</div>
         {% endif %}
     </article>
 </section>
+{% endif %}
 
-<section class="card filter-panel">
+<section class="{% if submenus_estoque_ti %}ti-stock-table-shell{% else %}card filter-panel{% endif %}">
     <form method="get" action="{{ request.path }}#lista-itens-estoque" class="filter-form">
         <div>
             <label for="id_q">Pesquisar</label>
-            <input type="text" id="id_q" name="q" value="{{ filtros.q }}" placeholder="Nome, categoria, codigo ou descricao">
+            <input type="text" id="id_q" name="q" value="{{ filtros.q }}" placeholder="Nome, categoria, código ou descrição">
         </div>
         <div>
             <label for="id_categoria">Categoria</label>
@@ -440,6 +613,16 @@
                 {% endfor %}
             </select>
         </div>
+        {% if submenus_estoque_ti %}
+        <div>
+            <label for="id_situacao_ti">Situação TI</label>
+            <select id="id_situacao_ti" name="situacao_ti">
+                <option value="">Todas</option>
+                <option value="uso" {% if filtros.situacao_ti == "uso" %}selected{% endif %}>Equipamentos em uso</option>
+                <option value="estoque" {% if filtros.situacao_ti == "estoque" %}selected{% endif %}>Equipamentos em estoque</option>
+            </select>
+        </div>
+        {% endif %}
         <div>
             <label for="id_status">Status</label>
             <select id="id_status" name="status">
@@ -459,11 +642,85 @@
 <section class="stock-table-panel" id="lista-itens-estoque">
         <div class="stock-table-header">
             <div>
+                {% if lista_solicitada %}
                 <h3>{% if categoria_selecionada_label %}Itens de {{ categoria_selecionada_label }}{% else %}Itens do estoque{% endif %}</h3>
                 <p>{{ total_filtrado }} itens encontrados com os filtros atuais.</p>
+                {% else %}
+                <h3>Escolha uma visão do estoque</h3>
+                <p>A lista será exibida depois que você selecionar uma categoria, submenu ou filtro.</p>
+                {% endif %}
             </div>
         </div>
         {% if itens %}
+        {% if submenus_estoque_ti %}
+        <table class="stock-table excel-like">
+            <thead>
+                <tr>
+                    <th>Patrimônio</th>
+                    <th>Categoria</th>
+                    <th>Usuário</th>
+                    <th>Setor</th>
+                    <th>Endereço IP</th>
+                    <th>Endereço MAC</th>
+                    <th>Processador / Marca</th>
+                    <th>RAM / Polegadas</th>
+                    <th>Armazenamento</th>
+                    <th>Status coleta</th>
+                    <th>Entradas</th>
+                    <th>Saidas</th>
+                    <th>Saldo</th>
+                    <th>Estoque mínimo</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                <tr>
+                    <td>
+                        <a href="{% url 'detalhe_item_estoque' item.pk %}" class="excel-cell-main">{{ item.dados_ti.patrimonio }}</a>
+                        <span class="excel-cell-muted">{{ item.nome }}</span>
+                    </td>
+                    <td>{{ item.categoria_nome }}</td>
+                    <td>{{ item.dados_ti.usuario|default:"-" }}</td>
+                    <td>{{ item.dados_ti.setor|default:"-" }}</td>
+                    <td>{{ item.dados_ti.ip|default:"-" }}</td>
+                    <td>{{ item.dados_ti.mac|default:"-" }}</td>
+                    <td>{{ item.dados_ti.processador|default:item.dados_ti.marca|default:"-" }}</td>
+                    <td>{{ item.dados_ti.ram|default:item.dados_ti.polegadas|default:"-" }}</td>
+                    <td>{{ item.dados_ti.armazenamento|default:"-" }}</td>
+                    <td>
+                        <span class="excel-cell-main">{{ item.dados_ti.status_coleta|default:"-" }}</span>
+                        <span class="excel-cell-muted">{{ item.dados_ti.data_coleta|default:"" }}</span>
+                    </td>
+                    <td class="stock-number"><strong>{{ item.total_entradas }}</strong></td>
+                    <td class="stock-number"><strong>{{ item.total_saidas }}</strong></td>
+                    <td class="stock-number stock-current">{{ item.quantidade_atual }} {{ item.unidade_medida }}</td>
+                    <td class="stock-number">{{ item.estoque_minimo }} {{ item.unidade_medida }}</td>
+                    <td>
+                        {% if item.estoque_baixo %}
+                        <span class="stock-status danger">{{ item.status_estoque }}</span>
+                        {% else %}
+                        <span class="stock-status">{{ item.status_estoque }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="excel-actions">
+                            <a href="{% url 'detalhe_item_estoque' item.pk %}" class="btn btn-secondary">Detalhes</a>
+                            {% if mostrar_acoes %}
+                            <a href="{% url 'editar_item_estoque' item.pk %}" class="btn btn-secondary stock-icon-action" title="Editar item" aria-label="Editar {{ item.nome }}">&#9998;</a>
+                            {% if permite_exclusao %}
+                            <a href="{% url 'excluir_item_estoque' item.pk %}" class="btn btn-danger stock-icon-action" title="Excluir item" aria-label="Excluir {{ item.nome }}">&#128465;</a>
+                            {% endif %}
+                            <a href="{% url 'movimentar_item_estoque' item.pk %}" class="btn btn-primary">Movimentar</a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
         <table class="stock-table">
             <thead>
                 <tr>
@@ -471,9 +728,9 @@
                     <th>Entradas</th>
                     <th>Saidas</th>
                     <th>Saldo</th>
-                    <th>Estoque minimo</th>
+                    <th>Estoque mínimo</th>
                     <th>Status</th>
-                    <th>Acoes</th>
+                    <th>Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -510,8 +767,15 @@
                 {% endfor %}
             </tbody>
         </table>
+        {% endif %}
+        {% else %}
+        {% if not lista_solicitada %}
+        <div class="empty-box">
+            Selecione uma categoria, um submenu ou aplique um filtro para visualizar os itens deste estoque.
+        </div>
         {% else %}
         <div class="empty-box">Nenhum item encontrado neste estoque.</div>
+        {% endif %}
         {% endif %}
 </section>
 {% endif %}

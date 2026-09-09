@@ -26,6 +26,7 @@ CATEGORIAS_ESTOQUE_TI = [
     (ItemEstoque.Categoria.HEADSET, "Headset"),
     (ItemEstoque.Categoria.IMPRESSORA, "Impressora"),
     (ItemEstoque.Categoria.REDE, "Rede e Internet"),
+    (ItemEstoque.Categoria.TELEFONE, "Telefone"),
     (ItemEstoque.Categoria.ACESSORIO_TI, "Acessorios de TI"),
 ]
 

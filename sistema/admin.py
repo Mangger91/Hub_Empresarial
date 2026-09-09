@@ -2,6 +2,8 @@ from django.contrib import admin, messages
 
 from .models import (
     CategoriaEstoque,
+    ChamadoTI,
+    ConfiguracaoChamadosTI,
     EnderecoEmpresaMotoboy,
     ItemEstoque,
     MovimentacaoEstoque,
@@ -179,6 +181,29 @@ class NotificacaoAdmin(admin.ModelAdmin):
     list_display = ("titulo", "destinatario", "modulo", "lida", "criada_em")
     search_fields = ("titulo", "destinatario__username", "destinatario__email", "mensagem")
     list_filter = ("modulo", "lida", "criada_em")
+
+
+@admin.register(ChamadoTI)
+class ChamadoTIAdmin(admin.ModelAdmin):
+    list_display = (
+        "codigo",
+        "colaborador",
+        "setor",
+        "prioridade",
+        "status",
+        "atendente_nome",
+        "aberto_em",
+        "atendimento_iniciado_em",
+        "concluido_em",
+        "tempo_atendimento_minutos",
+    )
+    search_fields = ("codigo", "colaborador", "setor", "descricao", "solucao", "observacoes")
+    list_filter = ("status", "prioridade", "setor", "aberto_em")
+
+
+@admin.register(ConfiguracaoChamadosTI)
+class ConfiguracaoChamadosTIAdmin(admin.ModelAdmin):
+    list_display = ("id", "atualizado_por", "atualizado_em")
 
 
 class RotaParadaInline(admin.TabularInline):

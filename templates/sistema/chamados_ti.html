@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+
+{% block title %}{{ modulo_titulo }}{% endblock %}
+{% block page_title %}{{ modulo_titulo }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .tickets-actions,
+    .tickets-kpis,
+    .tickets-filters {
+        margin-bottom: 14px;
+    }
+
+    .tickets-actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: space-between;
+    }
+
+    .tickets-actions > div {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .tickets-kpis {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    }
+
+    .ticket-kpi {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-sm);
+        padding: 12px;
+    }
+
+    .ticket-kpi strong {
+        color: var(--muted);
+        display: block;
+        font-size: 0.7rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .ticket-kpi span {
+        display: block;
+        font-size: 1.45rem;
+        font-weight: 800;
+        margin-top: 4px;
+    }
+
+    .tickets-table-panel {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-sm);
+        overflow-x: auto;
+    }
+
+    .tickets-table {
+        border-collapse: collapse;
+        min-width: 1120px;
+        width: 100%;
+    }
+
+    .tickets-table th,
+    .tickets-table td {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+    }
+
+    .tickets-table th {
+        background: var(--table-head-bg);
+        color: var(--muted);
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .ticket-code {
+        color: var(--accent-strong);
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .ticket-text {
+        max-width: 330px;
+    }
+
+    .ticket-text strong,
+    .ticket-text span {
+        display: block;
+    }
+
+    .ticket-text span {
+        color: var(--muted);
+        margin-top: 4px;
+    }
+
+    .ticket-pill {
+        border-radius: 999px;
+        display: inline-flex;
+        font-size: 0.72rem;
+        font-weight: 800;
+        padding: 4px 8px;
+        white-space: nowrap;
+    }
+
+    .ticket-pill.status {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+    }
+
+    .ticket-pill.done {
+        background: var(--success-soft);
+        color: var(--success);
+    }
+
+    .ticket-pill.urgent {
+        background: var(--danger-soft);
+        color: var(--danger);
+    }
+
+    .ticket-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 150px;
+    }
+
+    @media (max-width: 720px) {
+        .tickets-actions {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .tickets-actions > div,
+        .tickets-actions .btn {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="module-header">
+    <div>
+        <span class="section-kicker">{{ papel_modulo_label }}</span>
+        <h2>{{ modulo_titulo }}</h2>
+        <p>{{ modulo_descricao }}</p>
+    </div>
+    {% if not acesso_negado %}
+    <div class="hero-actions">
+        {% if permite_configurar_emails %}
+        <a href="{% url 'configurar_emails_chamados_ti' %}" class="btn btn-secondary">Destinatários</a>
+        {% endif %}
+        {% if permite_edicao %}
+        <a href="{% url 'importar_chamados_ti' %}" class="btn btn-secondary">Importar planilha</a>
+        {% endif %}
+        <a href="{% url 'novo_chamado_ti' %}" class="btn btn-primary">Novo chamado</a>
+    </div>
+    {% endif %}
+</section>
+
+{% if acesso_negado %}
+<div class="alert-banner">
+    Você não possui permissão para acessar essa área, contate o administrador.
+</div>
+{% else %}
+<section class="tickets-kpis">
+    <article class="ticket-kpi">
+        <strong>Total</strong>
+        <span>{{ total_chamados }}</span>
+    </article>
+    <article class="ticket-kpi">
+        <strong>Em aberto</strong>
+        <span>{{ total_abertos }}</span>
+    </article>
+    <article class="ticket-kpi">
+        <strong>Urgentes</strong>
+        <span>{{ total_urgentes }}</span>
+    </article>
+    <article class="ticket-kpi">
+        <strong>Concluídos</strong>
+        <span>{{ total_concluidos }}</span>
+    </article>
+</section>
+
+<section class="card tickets-filters">
+    <form method="get" class="filter-form">
+        <div>
+            <label for="id_q">Pesquisar</label>
+            <input type="text" id="id_q" name="q" value="{{ filtros.q }}" placeholder="ID, colaborador, setor ou descrição">
+        </div>
+        <div>
+            <label for="id_status">Status</label>
+            <select id="id_status" name="status">
+                <option value="">Todos</option>
+                {% for valor, label in status_choices %}
+                <option value="{{ valor }}" {% if filtros.status == valor %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="id_prioridade">Prioridade</label>
+            <select id="id_prioridade" name="prioridade">
+                <option value="">Todas</option>
+                {% for valor, label in prioridade_choices %}
+                <option value="{{ valor }}" {% if filtros.prioridade == valor %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-primary">Filtrar</button>
+            <a href="{% url 'chamados_ti' %}" class="btn btn-secondary">Limpar</a>
+        </div>
+    </form>
+</section>
+
+<section class="tickets-table-panel">
+    {% if chamados %}
+    <table class="tickets-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Data</th>
+                <th>Colaborador</th>
+                <th>Setor</th>
+                <th>Prioridade</th>
+                <th>Status</th>
+                <th>Solicitação</th>
+                <th>Anexo</th>
+                <th>Atendente</th>
+                <th>Abertura</th>
+                <th>Início</th>
+                <th>Conclusão</th>
+                <th>Tempo</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for chamado in chamados %}
+            <tr>
+                <td class="ticket-code">{{ chamado.codigo }}</td>
+                <td>{{ chamado.data|date:"d/m/Y" }}</td>
+                <td><strong>{{ chamado.colaborador }}</strong></td>
+                <td>{{ chamado.setor|default:"-" }}</td>
+                <td>
+                    <span class="ticket-pill {% if chamado.prioridade == 'URGENTE' %}urgent{% endif %}">
+                        {{ chamado.get_prioridade_display }}
+                    </span>
+                </td>
+                <td>
+                    <span class="ticket-pill {% if chamado.status == 'CONCLUIDO' %}done{% else %}status{% endif %}">
+                        {{ chamado.get_status_display }}
+                    </span>
+                </td>
+                <td class="ticket-text">
+                    <strong>{{ chamado.descricao|truncatechars:110 }}</strong>
+                    {% if chamado.observacoes %}<span>{{ chamado.observacoes|truncatechars:90 }}</span>{% endif %}
+                </td>
+                <td>
+                    {% if chamado.anexo_imagem %}
+                    <a href="{{ chamado.anexo_imagem.url }}" target="_blank" class="btn btn-secondary">Imagem</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ chamado.atendente_nome|default:"-" }}</td>
+                <td>{{ chamado.aberto_em|date:"d/m/Y H:i" }}</td>
+                <td>{{ chamado.atendimento_iniciado_em|date:"d/m/Y H:i"|default:"-" }}</td>
+                <td>{{ chamado.concluido_em|date:"d/m/Y H:i"|default:"-" }}</td>
+                <td>
+                    {% if chamado.tempo_atendimento_minutos is not None %}
+                        {{ chamado.tempo_atendimento_minutos }} min
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="ticket-row-actions">
+                        {% if permite_edicao %}
+                        <a href="{% url 'editar_chamado_ti' chamado.pk %}" class="btn btn-secondary">Editar</a>
+                        {% if not chamado.atendimento_iniciado_em and chamado.status != 'CONCLUIDO' %}
+                        <form method="post" action="{% url 'assumir_chamado_ti' chamado.pk %}" class="inline">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-primary">Atender</button>
+                        </form>
+                        {% endif %}
+                        {% if chamado.status != 'CONCLUIDO' %}
+                        <a href="{% url 'concluir_chamado_ti' chamado.pk %}" class="btn btn-primary">Concluir</a>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-box">Nenhum chamado encontrado.</div>
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}

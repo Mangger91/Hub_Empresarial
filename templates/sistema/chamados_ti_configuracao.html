@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}{{ modulo_titulo }}{% endblock %}
+{% block page_title %}{{ modulo_titulo }}{% endblock %}
+
+{% block content %}
+<section class="module-header">
+    <div>
+        <span class="section-kicker">{{ papel_modulo_label }}</span>
+        <h2>{{ modulo_titulo }}</h2>
+        <p>{{ modulo_descricao }}</p>
+    </div>
+    <a href="{% url 'chamados_ti' %}" class="btn btn-secondary">Voltar</a>
+</section>
+
+<section class="card form-card">
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-grid">
+            {% for field in form %}
+            <div class="field-span">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}<small class="muted">{{ field.help_text }}</small>{% endif %}
+                {% if field.errors %}<div class="erro">{{ field.errors|join:", " }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        <div class="form-inline">
+            <button type="submit" class="btn btn-primary">Salvar destinatários</button>
+            <a href="{% url 'chamados_ti' %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

@@ -9,3 +9,6 @@ staticfiles/
 backups/
 data/
 logs/
+media/
+output/
+tmp/

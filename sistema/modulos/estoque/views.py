@@ -3,6 +3,7 @@ from collections import defaultdict
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 from textwrap import wrap
 import unicodedata
@@ -10,10 +11,12 @@ import unicodedata
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.management.base import CommandError
+from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Sum, Value, When
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from openpyxl import load_workbook
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4, landscape
@@ -28,11 +31,15 @@ from ..common import MESES_PT_BR, contexto_modulo, renderizar_modulo_sem_permiss
 from .forms import (
     CategoriaEstoqueForm,
     ImportarEstoquePlanilhasForm,
+    ImportarEstoqueTIForm,
     ItemEstoqueForm,
     MovimentacaoEstoqueForm,
     RelatorioEstoqueFiltroForm,
 )
-from sistema.management.commands.importar_estoque_excel import Command as ImportarEstoqueCommand
+from sistema.management.commands.importar_estoque_excel import (
+    Command as ImportarEstoqueCommand,
+    texto_limpo,
+)
 from .regras import (
     area_do_modulo_estoque,
     categorias_estoque_por_modulo,
@@ -93,6 +100,73 @@ def _modulo_por_area_estoque(area):
         ItemEstoque.Area.EXPEDIENTE: ModuloSistema.ESTOQUE_EXPEDIENTE,
     }
     return modulos_por_area[area]
+
+
+def _categoria_ti_por_tipo_importacao(tipo_equipamento):
+    categorias = {
+        "computador": ItemEstoque.Categoria.COMPUTADOR,
+        "monitor": ItemEstoque.Categoria.MONITOR,
+    }
+    return categorias[tipo_equipamento]
+
+
+def _rotulo_situacao_ti(situacao):
+    return "Equipamento em uso" if situacao == "uso" else "Equipamento em estoque"
+
+
+def _dados_descricao_ti(descricao):
+    texto = str(descricao or "")
+    dados = {}
+    rotulos = [
+        "Situacao TI",
+        "Usuario",
+        "Setor",
+        "Endereco IP",
+        "Endereco MAC",
+        "Processador",
+        "Memoria RAM",
+        "Armazenamento",
+        "Status",
+        "Data da coleta",
+        "Patrimonio",
+        "Marca",
+        "Polegadas",
+    ]
+    for indice, rotulo in enumerate(rotulos):
+        proximo_rotulo = "|".join(re.escape(proximo) for proximo in rotulos[indice + 1 :])
+        padrao = rf"{re.escape(rotulo)}:\s*(.*?)(?=\s+(?:{proximo_rotulo}):|$)"
+        match = re.search(padrao, texto, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            dados[rotulo] = " ".join(match.group(1).split())
+    return dados
+
+
+class ListaItensTI(list):
+    def get(self, **filtros):
+        for item in self:
+            if all(getattr(item, chave) == valor for chave, valor in filtros.items()):
+                return item
+        raise ItemEstoque.DoesNotExist
+
+
+def _preparar_itens_ti_para_tabela(itens):
+    for item in itens:
+        dados = _dados_descricao_ti(item.descricao)
+        item.dados_ti = {
+            "patrimonio": item.codigo_proprio or dados.get("Patrimonio") or item.nome,
+            "usuario": dados.get("Usuario", ""),
+            "setor": dados.get("Setor", ""),
+            "ip": dados.get("Endereco IP", ""),
+            "mac": dados.get("Endereco MAC", ""),
+            "processador": dados.get("Processador", ""),
+            "ram": dados.get("Memoria RAM", ""),
+            "armazenamento": dados.get("Armazenamento", ""),
+            "status_coleta": dados.get("Status", ""),
+            "data_coleta": dados.get("Data da coleta", ""),
+            "marca": dados.get("Marca", ""),
+            "polegadas": dados.get("Polegadas", ""),
+        }
+    return ListaItensTI(itens)
 
 
 def _normalizar_texto_busca(valor):
@@ -786,8 +860,10 @@ def _estoque(request, modulo):
     busca = request.GET.get("q", "").strip()
     categoria = request.GET.get("categoria", "").strip()
     status = request.GET.get("status", "").strip()
+    situacao_ti = request.GET.get("situacao_ti", "").strip()
     categorias_disponiveis = categorias_estoque_por_modulo(modulo)
     categorias_validas = valores_categorias_estoque_por_modulo(modulo)
+    lista_solicitada = bool(busca or categoria or status or situacao_ti)
     itens_criticos = ItemEstoque.objects.filter(area=area).filter(
         Q(quantidade_atual__lte=0)
         | Q(estoque_minimo__gt=0, quantidade_atual__lt=F("estoque_minimo"))
@@ -799,6 +875,13 @@ def _estoque(request, modulo):
         itens = itens.filter(categoria=categoria)
     elif categoria:
         categoria = ""
+    if modulo == ModuloSistema.ESTOQUE_TI:
+        if situacao_ti == "uso":
+            itens = itens.filter(descricao__icontains="Situacao TI: uso")
+        elif situacao_ti == "estoque":
+            itens = itens.filter(descricao__icontains="Situacao TI: estoque")
+        elif situacao_ti:
+            situacao_ti = ""
     if status == "sem_estoque":
         itens = itens.filter(quantidade_atual__lte=0)
     elif status == "perigoso":
@@ -809,17 +892,63 @@ def _estoque(request, modulo):
             | Q(estoque_minimo__gt=0, quantidade_atual__gte=F("estoque_minimo"))
         )
 
+    if lista_solicitada:
+        total_filtrado = itens.count()
+        if modulo == ModuloSistema.ESTOQUE_TI:
+            itens = _preparar_itens_ti_para_tabela(list(itens.order_by("categoria", "nome")))
+        else:
+            itens = itens.order_by("categoria", "nome")
+    else:
+        total_filtrado = 0
+        itens = ListaItensTI() if modulo == ModuloSistema.ESTOQUE_TI else ItemEstoque.objects.none()
+
     context["itens"] = itens
     context["painel_estoque"] = _montar_painel_estoque(area)
-    context["total_filtrado"] = itens.count()
+    context["total_filtrado"] = total_filtrado
+    context["lista_solicitada"] = lista_solicitada
+    context["mostrar_valor_estoque"] = modulo != ModuloSistema.ESTOQUE_TI
+    context["mostrar_paineis_apoio_estoque"] = modulo != ModuloSistema.ESTOQUE_TI
     context["itens_criticos"] = itens_criticos
     context["mostrar_acoes"] = usuario_pode_editar(request.user, modulo)
     context["permite_importacao_planilha"] = (
-        modulo == ModuloSistema.ESTOQUE_ADM and usuario_pode_editar(request.user, modulo)
+        modulo in {ModuloSistema.ESTOQUE_ADM, ModuloSistema.ESTOQUE_TI}
+        and usuario_pode_editar(request.user, modulo)
     )
-    context["filtros"] = {"q": busca, "categoria": categoria, "status": status}
+    context["rota_importacao_estoque"] = (
+        "importar_estoque_ti" if modulo == ModuloSistema.ESTOQUE_TI else "importar_estoque_adm"
+    )
+    context["filtros"] = {
+        "q": busca,
+        "categoria": categoria,
+        "status": status,
+        "situacao_ti": situacao_ti,
+    }
     context["categorias_estoque"] = categorias_disponiveis
     context["categoria_selecionada_label"] = dict(categorias_disponiveis).get(categoria, "")
+    if modulo == ModuloSistema.ESTOQUE_TI:
+        context["submenus_estoque_ti"] = [
+            {
+                "titulo": "Equipamentos em uso",
+                "situacao": "uso",
+                "itens": [
+                    ("COMPUTADOR", "Computador"),
+                    ("MONITOR", "Monitores"),
+                    ("IMPRESSORA", "Impressoras"),
+                ],
+            },
+            {
+                "titulo": "Equipamentos em estoque",
+                "situacao": "estoque",
+                "itens": [
+                    ("COMPUTADOR", "Computadores"),
+                    ("MONITOR", "Monitores"),
+                    ("IMPRESSORA", "Impressoras"),
+                    ("MOUSE", "Mouse"),
+                    ("TECLADO", "Teclado"),
+                    ("TELEFONE", "Telefone"),
+                ],
+            },
+        ]
     return render(request, "sistema/estoque_lista.html", context)
 
 
@@ -829,6 +958,146 @@ def _salvar_upload_temporario(arquivo, diretorio):
         for chunk in arquivo.chunks():
             destino.write(chunk)
     return caminho
+
+
+def _mapear_colunas_planilha_ti(sheet):
+    colunas = {}
+    for col_idx in range(1, sheet.max_column + 1):
+        chave = _chave_coluna_ti(sheet.cell(row=1, column=col_idx).value)
+        if chave:
+            colunas[chave] = col_idx
+    return colunas
+
+
+def _chave_coluna_ti(valor):
+    texto = _normalizar_texto_busca(valor).upper()
+    return "".join(caractere for caractere in texto if caractere.isalnum())
+
+
+def _coluna_ti(colunas, *nomes):
+    chaves_esperadas = [_chave_coluna_ti(nome) for nome in nomes]
+    for chave_esperada in chaves_esperadas:
+        for chave, coluna in colunas.items():
+            if chave == chave_esperada or chave.startswith(chave_esperada):
+                return coluna
+    return None
+
+
+def _coluna_ti_por_partes(colunas, *partes):
+    partes_normalizadas = [_chave_coluna_ti(parte) for parte in partes]
+    for chave, coluna in colunas.items():
+        if all(parte in chave for parte in partes_normalizadas):
+            return coluna
+    return None
+
+
+def _valor_coluna_ti(sheet, row_idx, colunas, *nomes):
+    coluna = _coluna_ti(colunas, *nomes)
+    if coluna:
+        return texto_limpo(sheet.cell(row=row_idx, column=coluna).value)
+    return ""
+
+
+def _descricao_computador_ti(sheet, row_idx, colunas, situacao):
+    campos = [
+        ("Situacao TI", situacao),
+        ("Usuario", _valor_coluna_ti(sheet, row_idx, colunas, "Usuario Logado")),
+        ("Setor", _valor_coluna_ti(sheet, row_idx, colunas, "Setor")),
+        ("Endereco IP", _valor_coluna_ti(sheet, row_idx, colunas, "Endereco IP")),
+        ("Endereco MAC", _valor_coluna_ti(sheet, row_idx, colunas, "Endereco MAC")),
+        ("Processador", _valor_coluna_ti(sheet, row_idx, colunas, "Processador CPU")),
+        ("Memoria RAM", _valor_coluna_ti(sheet, row_idx, colunas, "Memoria RAM")),
+        ("Armazenamento", _valor_coluna_ti(sheet, row_idx, colunas, "Armazenamento Disco")),
+        ("Status", _valor_coluna_ti(sheet, row_idx, colunas, "Status")),
+        ("Data da coleta", _valor_coluna_ti(sheet, row_idx, colunas, "Data da Coleta")),
+    ]
+    return "\n".join(f"{rotulo}: {valor}" for rotulo, valor in campos if valor)
+
+
+def _descricao_monitor_ti(sheet, row_idx, colunas, situacao):
+    campos = [
+        ("Situacao TI", situacao),
+        ("Patrimonio", _valor_coluna_ti(sheet, row_idx, colunas, "Patrimonio")),
+        ("Marca", _valor_coluna_ti(sheet, row_idx, colunas, "Marca")),
+        ("Polegadas", _valor_coluna_ti(sheet, row_idx, colunas, "Polegadas")),
+        ("Usuario", _valor_coluna_ti(sheet, row_idx, colunas, "Usuario")),
+    ]
+    return "\n".join(f"{rotulo}: {valor}" for rotulo, valor in campos if valor)
+
+
+@transaction.atomic
+def _importar_planilha_ti(caminho, tipo_equipamento, situacao, substituir, usuario):
+    categoria = _categoria_ti_por_tipo_importacao(tipo_equipamento)
+    wb = load_workbook(filename=caminho, data_only=True)
+    sheet = wb.active
+    colunas = _mapear_colunas_planilha_ti(sheet)
+
+    if tipo_equipamento == "computador":
+        coluna_nome = (
+            _coluna_ti(colunas, "Nome da Maquina", "Nome da Máquina")
+            or _coluna_ti_por_partes(colunas, "Nome", "Ma")
+            or _coluna_ti(colunas, "Patrimonio")
+        )
+    else:
+        coluna_nome = _coluna_ti(colunas, "Patrimonio")
+
+    if not coluna_nome:
+        raise CommandError("Nao foi possivel localizar a coluna principal da planilha.")
+
+    if substituir:
+        itens_substituir = ItemEstoque.objects.filter(
+            area=ItemEstoque.Area.TECNOLOGIA,
+            categoria=categoria,
+            descricao__icontains=f"Situacao TI: {situacao}",
+        )
+        MovimentacaoEstoque.objects.filter(item__in=itens_substituir).delete()
+        itens_substituir.delete()
+
+    resumo = {"criados": 0, "atualizados": 0, "ignorados": 0}
+    for row_idx in range(2, sheet.max_row + 1):
+        identificador = texto_limpo(sheet.cell(row=row_idx, column=coluna_nome).value)
+        if not identificador:
+            resumo["ignorados"] += 1
+            continue
+
+        if tipo_equipamento == "computador":
+            nome = identificador
+            codigo = identificador
+            descricao = _descricao_computador_ti(sheet, row_idx, colunas, situacao)
+            ativo = _valor_coluna_ti(sheet, row_idx, colunas, "Status").casefold() != "inativo"
+        else:
+            nome = f"Monitor {identificador}"
+            codigo = identificador
+            descricao = _descricao_monitor_ti(sheet, row_idx, colunas, situacao)
+            ativo = True
+
+        item, criado = ItemEstoque.objects.get_or_create(
+            area=ItemEstoque.Area.TECNOLOGIA,
+            nome=nome,
+            defaults={
+                "categoria": categoria,
+                "codigo_proprio": codigo,
+                "descricao": descricao,
+                "unidade_medida": "un",
+                "custo_unitario": VALOR_ZERO,
+                "estoque_minimo": 0,
+                "ativo": ativo,
+            },
+        )
+        if criado:
+            resumo["criados"] += 1
+        else:
+            item.categoria = categoria
+            item.codigo_proprio = codigo
+            item.descricao = descricao
+            item.unidade_medida = "un"
+            item.ativo = ativo
+            item.save()
+            resumo["atualizados"] += 1
+
+        _ajustar_saldo_item(item, 1, usuario)
+
+    return resumo
 
 
 @login_required
@@ -899,6 +1168,57 @@ def importar_estoque_adm(request):
                 return redirect("estoque_adm")
     else:
         form = ImportarEstoquePlanilhasForm()
+
+    context["form"] = form
+    return render(request, "sistema/estoque_importar.html", context)
+
+
+@login_required
+def importar_estoque_ti(request):
+    modulo = ModuloSistema.ESTOQUE_TI
+    context = contexto_modulo(
+        request,
+        modulo,
+        "Importar Estoque TI",
+        "Importe computadores e monitores a partir de planilhas Excel.",
+    )
+    context["rota_estoque"] = rota_do_modulo_estoque(modulo)
+    context["tipo_importacao"] = "ti"
+
+    if context["acesso_negado"]:
+        context["form"] = ImportarEstoqueTIForm()
+        return render(request, "sistema/estoque_importar.html", context)
+
+    if not context["permite_edicao"]:
+        messages.error(request, "Seu perfil permite apenas visualizar este estoque.")
+        return redirect("estoque_ti")
+
+    if request.method == "POST":
+        form = ImportarEstoqueTIForm(request.POST, request.FILES)
+        if form.is_valid():
+            try:
+                with TemporaryDirectory() as diretorio:
+                    caminho = _salvar_upload_temporario(form.cleaned_data["arquivo"], diretorio)
+                    resumo = _importar_planilha_ti(
+                        caminho=caminho,
+                        tipo_equipamento=form.cleaned_data["tipo_equipamento"],
+                        situacao=form.cleaned_data["situacao"],
+                        substituir=form.cleaned_data["substituir_itens"],
+                        usuario=request.user,
+                    )
+            except CommandError as erro:
+                messages.error(request, f"Nao foi possivel importar a planilha: {erro}")
+            else:
+                messages.success(
+                    request,
+                    "Estoque TI importado com sucesso: "
+                    f"{resumo['criados']} criados, "
+                    f"{resumo['atualizados']} atualizados, "
+                    f"{resumo['ignorados']} ignorados.",
+                )
+                return redirect("estoque_ti")
+    else:
+        form = ImportarEstoqueTIForm()
 
     context["form"] = form
     return render(request, "sistema/estoque_importar.html", context)
@@ -1134,7 +1454,14 @@ def novo_item_estoque(request, modulo_codigo):
             messages.success(request, "Item de estoque cadastrado com sucesso.")
             return redirect(rota_do_modulo_estoque(modulo))
     else:
-        form = ItemEstoqueForm(modulo=modulo)
+        initial = {}
+        categoria_inicial = request.GET.get("categoria", "").strip()
+        situacao_ti = request.GET.get("situacao_ti", "").strip()
+        if categoria_inicial in valores_categorias_estoque_por_modulo(modulo):
+            initial["categoria"] = categoria_inicial
+        if modulo == ModuloSistema.ESTOQUE_TI and situacao_ti in {"uso", "estoque"}:
+            initial["situacao_ti"] = situacao_ti
+        form = ItemEstoqueForm(modulo=modulo, initial=initial)
 
     context = contexto_modulo(
         request,

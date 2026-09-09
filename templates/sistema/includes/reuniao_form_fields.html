@@ -185,6 +185,10 @@
     }
 </style>
 
+{% if form.non_field_errors %}
+<div class="erro">{{ form.non_field_errors|join:", " }}</div>
+{% endif %}
+
 <div class="form-grid">
     <div>
         <label for="{{ form.titulo.id_for_label }}">{{ form.titulo.label }}</label>

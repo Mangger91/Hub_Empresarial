@@ -237,6 +237,8 @@ class PerfilUsuario(models.Model):
 
 
 class Reuniao(models.Model):
+    SALAS_SEM_BLOQUEIO_DE_HORARIO = {"Externo", "Online"}
+
     class Status(models.TextChoices):
         AGENDADA = "AGENDADA", "Agendada"
         CANCELADA = "CANCELADA", "Cancelada"
@@ -290,6 +292,9 @@ class Reuniao(models.Model):
         if not self.sala_id or not self.data or not self.hora_inicio or not self.hora_fim:
             return
 
+        if self.sala.nome in self.SALAS_SEM_BLOQUEIO_DE_HORARIO:
+            return
+
         conflito = (
             self.__class__.objects.filter(
                 sala=self.sala,
@@ -304,7 +309,12 @@ class Reuniao(models.Model):
 
         if conflito:
             raise ValidationError(
-                "Ja existe uma reuniao agendada nesta sala para esse intervalo de horario."
+                {
+                    "sala": (
+                        "Ja existe uma reuniao agendada nesta sala para esse intervalo "
+                        "de horario."
+                    )
+                }
             )
 
 
@@ -359,6 +369,135 @@ class Notificacao(models.Model):
         return f"{self.titulo} - {self.destinatario}"
 
 
+class ChamadoTI(models.Model):
+    class Prioridade(models.TextChoices):
+        BAIXA = "BAIXA", "Baixa"
+        MEDIA = "MEDIA", "Média"
+        ALTA = "ALTA", "Alta"
+        URGENTE = "URGENTE", "Urgente"
+
+    class Status(models.TextChoices):
+        ABERTO = "ABERTO", "Aberto"
+        EM_ANDAMENTO = "EM_ANDAMENTO", "Em andamento"
+        AGUARDANDO = "AGUARDANDO", "Aguardando"
+        CONCLUIDO = "CONCLUIDO", "Concluído"
+        CANCELADO = "CANCELADO", "Cancelado"
+
+    codigo = models.CharField(max_length=20, unique=True, blank=True)
+    data = models.DateField(default=timezone.localdate)
+    atendente = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chamados_ti_atendidos",
+    )
+    atendente_nome = models.CharField(max_length=120, blank=True)
+    setor = models.CharField(max_length=80, blank=True)
+    colaborador = models.CharField(max_length=120)
+    prioridade = models.CharField(
+        max_length=12,
+        choices=Prioridade.choices,
+        default=Prioridade.MEDIA,
+    )
+    status = models.CharField(
+        max_length=15,
+        choices=Status.choices,
+        default=Status.ABERTO,
+    )
+    descricao = models.TextField("Descrição da solicitação")
+    solucao = models.TextField("Solução aplicada", blank=True)
+    anexo_imagem = models.FileField(upload_to="chamados_ti/", blank=True)
+    hora_inicio = models.TimeField(null=True, blank=True)
+    hora_fim = models.TimeField(null=True, blank=True)
+    tempo_minutos = models.PositiveIntegerField(null=True, blank=True)
+    aberto_em = models.DateTimeField(default=timezone.now)
+    atendimento_iniciado_em = models.DateTimeField(null=True, blank=True)
+    concluido_em = models.DateTimeField(null=True, blank=True)
+    tempo_atendimento_minutos = models.PositiveIntegerField(null=True, blank=True)
+    observacoes = models.TextField(blank=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chamados_ti_criados",
+    )
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-data", "-criado_em"]
+
+    def __str__(self):
+        return f"{self.codigo or self.pk} - {self.colaborador}"
+
+    @property
+    def tempo_horas(self):
+        if self.tempo_minutos is None:
+            return None
+        return round(self.tempo_minutos / 60, 2)
+
+    @property
+    def tempo_atendimento_horas(self):
+        if self.tempo_atendimento_minutos is None:
+            return None
+        return round(self.tempo_atendimento_minutos / 60, 2)
+
+    def registrar_inicio_atendimento(self, usuario, quando=None):
+        agora = quando or timezone.now()
+        if not self.atendimento_iniciado_em:
+            self.atendimento_iniciado_em = agora
+        self.status = self.Status.EM_ANDAMENTO
+        self.atendente = usuario
+        self.atendente_nome = usuario.get_full_name() or usuario.email or usuario.username
+
+    def registrar_conclusao(self, solucao, usuario, quando=None):
+        agora = quando or timezone.now()
+        if not self.atendimento_iniciado_em:
+            self.registrar_inicio_atendimento(usuario, agora)
+        elif not self.atendente:
+            self.atendente = usuario
+            if not self.atendente_nome:
+                self.atendente_nome = usuario.get_full_name() or usuario.email or usuario.username
+        self.status = self.Status.CONCLUIDO
+        self.solucao = solucao
+        self.concluido_em = agora
+        duracao = self.concluido_em - self.atendimento_iniciado_em
+        self.tempo_atendimento_minutos = max(0, int(duracao.total_seconds() // 60))
+
+
+class ConfiguracaoChamadosTI(models.Model):
+    emails_notificacao_abertura = models.TextField(
+        default="junior@falavinhacontabil.com.br\nbruno.ares@falavinhacontabil.com.br",
+        help_text="Informe um e-mail por linha, separados por virgula ou ponto e virgula.",
+    )
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configuracoes_chamados_ti_atualizadas",
+    )
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Configuração de chamados TI"
+        verbose_name_plural = "Configurações de chamados TI"
+
+    def __str__(self):
+        return "Configuração de chamados TI"
+
+    @classmethod
+    def carregar(cls):
+        configuracao, _ = cls.objects.get_or_create(pk=1)
+        return configuracao
+
+    def listar_emails_abertura(self):
+        texto = (self.emails_notificacao_abertura or "").replace(";", "\n").replace(",", "\n")
+        return [email.strip() for email in texto.splitlines() if email.strip()]
+
+
 class ItemEstoque(models.Model):
     class Area(models.TextChoices):
         ADMINISTRATIVO = "ADM", "Estoque ADM"
@@ -375,6 +514,7 @@ class ItemEstoque(models.Model):
         MONITOR = "MONITOR", "Monitor"
         TECLADO = "TECLADO", "Teclado"
         MOUSE = "MOUSE", "Mouse"
+        TELEFONE = "TELEFONE", "Telefone"
         HEADSET = "HEADSET", "Headset"
         IMPRESSORA = "IMPRESSORA", "Impressora"
         REDE = "REDE", "Rede e Internet"

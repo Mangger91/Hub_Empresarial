@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Sistema Corporativo{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260827.3">
-    <script src="{% static 'js/app.js' %}?v=20260827.3" defer></script>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260908.1">
+    <script src="{% static 'js/app.js' %}?v=20260908.1" defer></script>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -44,6 +44,9 @@
         <symbol id="icon-panel-left" viewBox="0 0 24 24">
             <rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path><path d="m15 10-2 2 2 2"></path>
         </symbol>
+        <symbol id="icon-moon" viewBox="0 0 24 24">
+            <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a7 7 0 1 0 10.2 10.2z"></path>
+        </symbol>
     </svg>
     {% block body %}
     <div class="app-shell">
@@ -51,9 +54,7 @@
         <aside class="sidebar">
             <div class="sidebar-head">
                 <a href="{% url 'inicio' %}" class="sidebar-brand">
-                    <span class="sidebar-kicker">Suite interna</span>
-                    <strong>Falavinha Inteligencia Contabil</strong>
-                    <span>Agenda, estoque, rotas e modulos internos em uma so plataforma.</span>
+                    <img src="{% static 'img/falavinha-logo-branco.webp' %}" alt="Falavinha Inteligência Contábil" class="sidebar-brand-logo">
                 </a>
                 <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-label="Ocultar menu lateral" title="Ocultar menu lateral">
                     <svg class="ui-icon" aria-hidden="true"><use href="#icon-panel-left"></use></svg>
@@ -86,14 +87,18 @@
 
                 <div class="topbar-actions">
                     {% if pode_acessar_usuarios %}
-                    <a href="{% url 'usuario_novo' %}" class="top-link primary-top-link">Cadastrar Usuario</a>
+                    <a href="{% url 'usuario_novo' %}" class="top-link primary-top-link">Cadastrar Usuário</a>
                     {% endif %}
                     <a href="{% url 'central_notificacoes' %}" class="top-link">
-                        Notificacoes
+                        Notificações
                         {% if notificacoes_nao_lidas %}
                             <span class="badge-counter">{{ notificacoes_nao_lidas }}</span>
                         {% endif %}
                     </a>
+                    <button type="button" class="top-link" data-theme-toggle aria-pressed="false">
+                        <svg class="btn-icon" aria-hidden="true"><use href="#icon-moon"></use></svg>
+                        <span data-theme-label>Modo dark</span>
+                    </button>
                     <a href="{% url 'minha_conta' %}" class="top-link">Minha Conta</a>
                     <form method="post" action="{% url 'logout' %}" class="inline">
                         {% csrf_token %}

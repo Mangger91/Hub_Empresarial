@@ -1,5 +1,6 @@
 from datetime import date, timedelta, time
 from decimal import Decimal
+from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -8,12 +9,15 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from openpyxl import Workbook
 
 from sistema.modulos.usuarios.forms import UsuarioSistemaForm
 from sistema.modulos.estoque.forms import ImportarEstoquePlanilhasForm
 
 from .models import (
     CategoriaEstoque,
+    ChamadoTI,
+    ConfiguracaoChamadosTI,
     EnderecoEmpresaMotoboy,
     ItemEstoque,
     ModuloSistema,
@@ -319,6 +323,17 @@ class AgendaParticipantesFormTests(TestCase):
         )
         self.client.login(username=self.usuario.email, password="Senha12345")
 
+    def dados_reuniao(self, sala, titulo="Alinhamento"):
+        return {
+            "titulo": titulo,
+            "descricao": "Validacao de disponibilidade da sala",
+            "data": (timezone.localdate() + timedelta(days=2)).isoformat(),
+            "hora_inicio": "09:30",
+            "hora_fim": "10:30",
+            "sala": str(sala.pk),
+            "status": Reuniao.Status.AGENDADA,
+        }
+
     def test_cria_reuniao_com_participante_selecionado(self):
         resposta = self.client.post(
             reverse("nova_reuniao"),
@@ -359,6 +374,52 @@ class AgendaParticipantesFormTests(TestCase):
         participante = reuniao.participantes.get(nome="Visitante sem email")
         self.assertEqual(resposta.status_code, 302)
         self.assertIsNone(participante.email)
+
+    def test_avisa_conflito_de_horario_na_mesma_sala(self):
+        Reuniao.objects.create(
+            titulo="Reuniao existente",
+            descricao="Reserva anterior",
+            data=timezone.localdate() + timedelta(days=2),
+            hora_inicio=time(9, 0),
+            hora_fim=time(10, 0),
+            organizador=self.usuario.email,
+            organizador_usuario=self.usuario,
+            sala=self.sala,
+        )
+
+        resposta = self.client.post(
+            reverse("nova_reuniao"),
+            self.dados_reuniao(self.sala, "Conflito presencial"),
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(
+            resposta,
+            "Ja existe uma reuniao agendada nesta sala para esse intervalo de horario.",
+        )
+        self.assertFalse(Reuniao.objects.filter(titulo="Conflito presencial").exists())
+
+    def test_permite_horarios_duplicados_para_salas_online_e_externo(self):
+        for nome_sala in ("Online", "Externo"):
+            sala = Sala.objects.create(nome=nome_sala, localizacao=nome_sala, capacidade=100)
+            Reuniao.objects.create(
+                titulo=f"Reuniao existente {nome_sala}",
+                descricao="Reserva anterior",
+                data=timezone.localdate() + timedelta(days=2),
+                hora_inicio=time(9, 0),
+                hora_fim=time(10, 0),
+                organizador=self.usuario.email,
+                organizador_usuario=self.usuario,
+                sala=sala,
+            )
+
+            resposta = self.client.post(
+                reverse("nova_reuniao"),
+                self.dados_reuniao(sala, f"Duplicidade {nome_sala}"),
+            )
+
+            self.assertEqual(resposta.status_code, 302)
+            self.assertTrue(Reuniao.objects.filter(titulo=f"Duplicidade {nome_sala}").exists())
 
 
 class AgendaCalendarioFiltroEmailTests(TestCase):
@@ -460,6 +521,271 @@ class AgendaCalendarioFiltroEmailTests(TestCase):
         self.assertContains(resposta, "Agenda exclusiva do dia selecionado")
 
 
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="agenda@example.com",
+    CALENDAR_INVITE_FROM_EMAIL="agenda@example.com",
+    CALENDAR_REPLY_TO_EMAIL="agenda@example.com",
+    CALENDAR_ORGANIZER_EMAIL="agenda@example.com",
+)
+class ChamadosTITests(TestCase):
+    def setUp(self):
+        self.usuario = User.objects.create_user(
+            username="chamados",
+            email="chamados@empresa.com.br",
+            password="Senha12345",
+        )
+        perfil, _ = PerfilUsuario.objects.get_or_create(usuario=self.usuario)
+        perfil.papel_chamados_ti = "ADMINISTRADOR"
+        perfil.save()
+
+    def test_lista_chamados_ti_exibe_fila_operacional(self):
+        ChamadoTI.objects.create(
+            codigo="0001",
+            colaborador="Bruno Souza",
+            setor="Recepcao",
+            prioridade=ChamadoTI.Prioridade.URGENTE,
+            status=ChamadoTI.Status.ABERTO,
+            descricao="Telefone nao transfere ligacao.",
+            criado_por=self.usuario,
+        )
+
+        self.client.force_login(self.usuario)
+        resposta = self.client.get(reverse("chamados_ti"))
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(resposta, "Novo chamado")
+        self.assertContains(resposta, "Importar planilha")
+        self.assertContains(resposta, "Telefone nao transfere")
+
+    def test_cria_chamado_ti_manual(self):
+        self.client.force_login(self.usuario)
+
+        resposta = self.client.post(
+            reverse("novo_chamado_ti"),
+            {
+                "setor": "Fiscal",
+                "colaborador": "Ana Lima",
+                "prioridade": ChamadoTI.Prioridade.ALTA,
+                "descricao": "Computador nao inicializa.",
+                "observacoes": "Pedido recebido por WhatsApp.",
+            },
+        )
+
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado = ChamadoTI.objects.get()
+        self.assertEqual(chamado.codigo, "0001")
+        self.assertEqual(chamado.prioridade, ChamadoTI.Prioridade.ALTA)
+        self.assertEqual(chamado.colaborador, "Ana Lima")
+        self.assertEqual(chamado.status, ChamadoTI.Status.ABERTO)
+        self.assertIsNotNone(chamado.aberto_em)
+
+    def test_cria_chamado_envia_email_de_abertura_para_destinatarios_configurados(self):
+        ConfiguracaoChamadosTI.objects.create(
+            emails_notificacao_abertura="junior@falavinhacontabil.com.br;bruno.ares@falavinhacontabil.com.br"
+        )
+        self.client.force_login(self.usuario)
+
+        resposta = self.client.post(
+            reverse("novo_chamado_ti"),
+            {
+                "setor": "Fiscal",
+                "colaborador": "Ana Lima",
+                "prioridade": ChamadoTI.Prioridade.URGENTE,
+                "descricao": "Internet oscilando na maquina.",
+                "observacoes": "",
+            },
+        )
+
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "Novo chamado aberto")
+        self.assertEqual(
+            mail.outbox[0].to,
+            ["junior@falavinhacontabil.com.br", "bruno.ares@falavinhacontabil.com.br"],
+        )
+        self.assertIn("Quem abriu: chamados@empresa.com.br", mail.outbox[0].body)
+        self.assertIn("Prioridade: Urgente", mail.outbox[0].body)
+        self.assertIn("Descrição: Internet oscilando na maquina.", mail.outbox[0].body)
+
+    def test_visualizador_cadastrado_pode_abrir_chamado_mas_nao_assumir(self):
+        visualizador = User.objects.create_user(
+            username="usuario.chamados",
+            email="usuario.chamados@empresa.com.br",
+            password="Senha12345",
+        )
+        perfil, _ = PerfilUsuario.objects.get_or_create(usuario=visualizador)
+        perfil.papel_chamados_ti = "VISUALIZADOR"
+        perfil.save()
+
+        self.client.force_login(visualizador)
+        resposta = self.client.post(
+            reverse("novo_chamado_ti"),
+            {
+                "setor": "Fiscal",
+                "colaborador": "",
+                "prioridade": ChamadoTI.Prioridade.MEDIA,
+                "descricao": "Preciso de acesso ao sistema.",
+                "observacoes": "",
+            },
+        )
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado = ChamadoTI.objects.get()
+        self.assertEqual(chamado.colaborador, "usuario.chamados@empresa.com.br")
+
+        resposta = self.client.post(reverse("assumir_chamado_ti", args=[chamado.pk]))
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado.refresh_from_db()
+        self.assertEqual(chamado.status, ChamadoTI.Status.ABERTO)
+        self.assertIsNone(chamado.atendimento_iniciado_em)
+
+    def test_apenas_administrador_configura_emails_de_abertura(self):
+        supervisor = User.objects.create_user(
+            username="supervisor.chamados",
+            email="supervisor.chamados@empresa.com.br",
+            password="Senha12345",
+        )
+        perfil, _ = PerfilUsuario.objects.get_or_create(usuario=supervisor)
+        perfil.papel_chamados_ti = "SUPERVISOR"
+        perfil.save()
+
+        self.client.force_login(supervisor)
+        resposta = self.client.get(reverse("configurar_emails_chamados_ti"))
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+
+        self.client.force_login(self.usuario)
+        resposta = self.client.post(
+            reverse("configurar_emails_chamados_ti"),
+            {"emails_notificacao_abertura": "ti@empresa.com.br\nsuporte@empresa.com.br"},
+        )
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        configuracao = ConfiguracaoChamadosTI.carregar()
+        self.assertEqual(
+            configuracao.listar_emails_abertura(),
+            ["ti@empresa.com.br", "suporte@empresa.com.br"],
+        )
+
+    def test_cria_chamado_com_anexo_de_imagem(self):
+        self.client.force_login(self.usuario)
+        imagem = SimpleUploadedFile(
+            "erro.png",
+            b"\x89PNG\r\n\x1a\n",
+            content_type="image/png",
+        )
+
+        resposta = self.client.post(
+            reverse("novo_chamado_ti"),
+            {
+                "setor": "Fiscal",
+                "colaborador": "Ana Lima",
+                "prioridade": ChamadoTI.Prioridade.MEDIA,
+                "descricao": "Tela com mensagem de erro.",
+                "observacoes": "",
+                "anexo_imagem": imagem,
+            },
+        )
+
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado = ChamadoTI.objects.get()
+        self.assertTrue(chamado.anexo_imagem.name.startswith("chamados_ti/"))
+
+    def test_assume_e_conclui_chamado_com_tempo_automatico(self):
+        chamado = ChamadoTI.objects.create(
+            codigo="0002",
+            colaborador="Bruno Souza",
+            setor="Fiscal",
+            prioridade=ChamadoTI.Prioridade.MEDIA,
+            status=ChamadoTI.Status.ABERTO,
+            descricao="Impressora nao imprime.",
+            criado_por=self.usuario,
+        )
+
+        self.client.force_login(self.usuario)
+        resposta = self.client.post(reverse("assumir_chamado_ti", args=[chamado.pk]))
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado.refresh_from_db()
+        self.assertEqual(chamado.status, ChamadoTI.Status.EM_ANDAMENTO)
+        self.assertEqual(chamado.atendente, self.usuario)
+        self.assertIsNotNone(chamado.atendimento_iniciado_em)
+
+        chamado.atendimento_iniciado_em = timezone.now() - timedelta(minutes=42)
+        chamado.save(update_fields=["atendimento_iniciado_em"])
+        resposta = self.client.post(
+            reverse("concluir_chamado_ti", args=[chamado.pk]),
+            {"solucao": "Driver reinstalado e impressao validada."},
+        )
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado.refresh_from_db()
+        self.assertEqual(chamado.status, ChamadoTI.Status.CONCLUIDO)
+        self.assertEqual(chamado.solucao, "Driver reinstalado e impressao validada.")
+        self.assertIsNotNone(chamado.concluido_em)
+        self.assertGreaterEqual(chamado.tempo_atendimento_minutos, 41)
+
+    def test_importa_planilha_chamados_ti(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Atendimentos"
+        ws.append(["Controle Diario de Atendimentos do Estagiario"])
+        ws.append(
+            [
+                "ID",
+                "Data",
+                "Atendente",
+                "Setor",
+                "Colaborador",
+                "Prioridade",
+                "Status",
+                "Descricao da solicitacao",
+                "Solucao aplicada",
+                "Hora inicio",
+                "Hora fim",
+                "Tempo (min)",
+                "Tempo (h)",
+                "Observacoes",
+            ]
+        )
+        ws.append(
+            [
+                "0007",
+                date(2026, 8, 25),
+                "Ruan",
+                "TI",
+                "Carla Martins",
+                "Urgente",
+                "Concluido",
+                "E-mail nao abre.",
+                "Perfil recriado.",
+                time(9, 0),
+                time(9, 25),
+                25,
+                0.42,
+                "Resolvido no mesmo dia.",
+            ]
+        )
+        conteudo = BytesIO()
+        wb.save(conteudo)
+        conteudo.seek(0)
+
+        self.client.force_login(self.usuario)
+        resposta = self.client.post(
+            reverse("importar_chamados_ti"),
+            {
+                "arquivo": SimpleUploadedFile(
+                    "chamados.xlsx",
+                    conteudo.read(),
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        self.assertRedirects(resposta, reverse("chamados_ti"))
+        chamado = ChamadoTI.objects.get(codigo="0007")
+        self.assertEqual(chamado.status, ChamadoTI.Status.CONCLUIDO)
+        self.assertEqual(chamado.tempo_minutos, 25)
+        self.assertEqual(chamado.tempo_atendimento_minutos, 25)
+        self.assertEqual(chamado.solucao, "Perfil recriado.")
+
+
 class EstoqueTests(TestCase):
     def setUp(self):
         self.usuario = User.objects.create_user(
@@ -513,13 +839,85 @@ class EstoqueTests(TestCase):
         )
 
         self.client.login(username="estoque@empresa.com.br", password="Senha12345")
-        resposta = self.client.get(reverse("estoque_ti"))
+        resposta_inicial = self.client.get(reverse("estoque_ti"))
+        self.assertEqual(len(resposta_inicial.context["itens"]), 0)
+        self.assertContains(resposta_inicial, "Escolha uma visão do estoque")
+
+        resposta = self.client.get(f"{reverse('estoque_ti')}?categoria=GERAL")
         item_lista = resposta.context["itens"].get(pk=self.item.pk)
 
         self.assertEqual(item_lista.total_entradas, 10)
         self.assertEqual(item_lista.total_saidas, 3)
         self.assertEqual(item_lista.quantidade_atual, 7)
-        self.assertContains(resposta, "Estoque minimo")
+        self.assertContains(resposta, "Estoque mínimo")
+
+    def test_estoque_ti_exibe_submenus_e_importacao(self):
+        self.client.login(username="estoque@empresa.com.br", password="Senha12345")
+
+        resposta = self.client.get(reverse("estoque_ti"))
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertContains(resposta, "Equipamentos em uso")
+        self.assertContains(resposta, "Equipamentos em estoque")
+        self.assertContains(resposta, "Telefone")
+        self.assertContains(resposta, reverse("importar_estoque_ti"))
+
+    def test_importa_computadores_ti_para_sqlite(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(
+            [
+                "Nome da Maquina (Patrimonio)",
+                "Usuario Logado",
+                "Setor",
+                "Endereco IP",
+                "Endereco MAC",
+                "Processador (CPU)",
+                "Memoria RAM",
+                "Armazenamento (Disco)",
+                "Status",
+                "Data da Coleta",
+            ]
+        )
+        sheet.append(
+            [
+                "OEJ004",
+                "ruan",
+                "FISCAL",
+                "192.168.101.146",
+                "74-56-3C-F4-71-E3",
+                "AMD Ryzen 3 3200G",
+                "16GB DDR4",
+                "224GB (SSD)",
+                "Ativo",
+                "25/08/2026",
+            ]
+        )
+        arquivo = BytesIO()
+        workbook.save(arquivo)
+        arquivo.seek(0)
+
+        self.client.login(username="estoque@empresa.com.br", password="Senha12345")
+        resposta = self.client.post(
+            reverse("importar_estoque_ti"),
+            {
+                "tipo_equipamento": "computador",
+                "situacao": "uso",
+                "arquivo": SimpleUploadedFile(
+                    "computadores.xlsx",
+                    arquivo.read(),
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            },
+        )
+
+        self.assertRedirects(resposta, reverse("estoque_ti"))
+        item = ItemEstoque.objects.get(nome="OEJ004")
+        self.assertEqual(item.area, ItemEstoque.Area.TECNOLOGIA)
+        self.assertEqual(item.categoria, ItemEstoque.Categoria.COMPUTADOR)
+        self.assertEqual(item.quantidade_atual, 1)
+        self.assertIn("Usuario: ruan", item.descricao)
+        self.assertIn("Processador: AMD Ryzen 3 3200G", item.descricao)
 
     def test_edita_item_nome_valor_e_quantidade_atual(self):
         MovimentacaoEstoque.objects.create(
@@ -531,7 +929,7 @@ class EstoqueTests(TestCase):
         )
 
         self.client.login(username="estoque@empresa.com.br", password="Senha12345")
-        resposta_lista = self.client.get(reverse("estoque_ti"))
+        resposta_lista = self.client.get(f"{reverse('estoque_ti')}?categoria=GERAL")
         self.assertContains(resposta_lista, "Editar")
 
         resposta = self.client.post(
@@ -572,7 +970,7 @@ class EstoqueTests(TestCase):
         )
 
         self.client.login(username="estoque@empresa.com.br", password="Senha12345")
-        resposta_lista = self.client.get(reverse("estoque_ti"))
+        resposta_lista = self.client.get(f"{reverse('estoque_ti')}?categoria=GERAL")
         self.assertContains(resposta_lista, "Excluir")
 
         resposta_confirmacao = self.client.get(reverse("excluir_item_estoque", args=[self.item.pk]))
@@ -595,7 +993,7 @@ class EstoqueTests(TestCase):
         perfil.save()
 
         self.client.login(username=supervisor.email, password="Senha12345")
-        resposta = self.client.get(reverse("estoque_ti"))
+        resposta = self.client.get(f"{reverse('estoque_ti')}?categoria=GERAL")
 
         self.assertContains(resposta, "Editar")
         self.assertNotContains(resposta, "Excluir")

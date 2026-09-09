@@ -392,3 +392,82 @@ def enviar_email_reuniao_finalizada(reuniao):
     _anexar_assinatura_inline(email)
     email.send(fail_silently=False)
     return True
+
+
+def enviar_email_abertura_chamado_ti(chamado, destinatarios):
+    emails = [email for email in destinatarios if email]
+    if not emails:
+        return False
+
+    if chamado.criado_por:
+        quem_abriu = (
+            chamado.criado_por.get_full_name()
+            or chamado.criado_por.email
+            or chamado.criado_por.username
+        )
+    else:
+        quem_abriu = chamado.colaborador or "Não informado"
+    prioridade = chamado.get_prioridade_display()
+    descricao = chamado.descricao or "Sem descrição informada."
+    abertura = timezone.localtime(chamado.aberto_em).strftime("%d/%m/%Y %H:%M")
+
+    mensagem_texto = (
+        "Novo chamado aberto\n\n"
+        f"Quem abriu: {quem_abriu}\n"
+        f"Prioridade: {prioridade}\n"
+        f"Descrição: {descricao}\n"
+        f"Abertura: {abertura}"
+        f"{_montar_assinatura_texto()}"
+    )
+
+    mensagem_html = f"""
+    <html>
+        <body style="margin:0; padding:24px; background:#f1f3f4; font-family:Arial, Helvetica, sans-serif; color:#202124;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:760px; margin:0 auto; background:#ffffff; border:1px solid #dadce0; border-radius:16px; overflow:hidden;">
+                <tr>
+                    <td style="padding:0; background:#ffffff;">
+                        <div style="height:6px; background:#1a73e8;"></div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:30px 34px 26px;">
+                        <div style="display:inline-block; margin-bottom:16px; padding:6px 12px; border-radius:999px; background:#e8f0fe; color:#1a73e8; font-size:12px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase;">
+                            Chamados - TI
+                        </div>
+                        <h2 style="margin:0 0 18px; font-size:26px; line-height:1.25; color:#202124;">Novo chamado aberto</h2>
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; border-collapse:collapse;">
+                            <tr>
+                                <td style="padding:12px 0; width:150px; font-weight:700; color:#1a73e8; vertical-align:top;">Quem abriu</td>
+                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(quem_abriu)}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Prioridade</td>
+                                <td style="padding:12px 0; color:#202124;">{_formatar_texto_email(prioridade)}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:12px 0; font-weight:700; color:#1a73e8; vertical-align:top;">Descrição</td>
+                                <td style="padding:12px 0; color:#202124; line-height:1.6;">{_formatar_texto_email(descricao)}</td>
+                            </tr>
+                        </table>
+                        <p style="margin:20px 0 0; padding:14px 16px; border-left:4px solid #1a73e8; background:#f8fbff; color:#5f6368;">
+                            Abertura registrada em {abertura}.
+                        </p>
+                        {_montar_assinatura_html()}
+                    </td>
+                </tr>
+            </table>
+        </body>
+    </html>
+    """
+
+    email = EmailMultiAlternatives(
+        subject="Novo chamado aberto",
+        body=mensagem_texto,
+        from_email=_remetente_calendario(),
+        to=emails,
+        reply_to=_reply_to_calendario(),
+    )
+    email.attach_alternative(mensagem_html, "text/html")
+    _anexar_assinatura_inline(email)
+    email.send(fail_silently=False)
+    return True

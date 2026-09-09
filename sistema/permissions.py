@@ -56,7 +56,7 @@ MODULOS_SISTEMA = [
         "nome": "Chamados - TI",
         "icone": "headphones",
         "rota": "chamados_ti",
-        "descricao": "Fila de atendimento com espaco pronto para futura expansao.",
+        "descricao": "Fila de atendimento, prioridades, prazos e historico de suporte.",
     },
 ]
 

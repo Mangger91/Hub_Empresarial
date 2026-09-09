@@ -15,6 +15,30 @@ from .regras import (
 
 FORM_CONTROL = {"class": "form-control"}
 
+SITUACOES_ESTOQUE_TI = (
+    ("", "Nao se aplica"),
+    ("uso", "Equipamento em uso"),
+    ("estoque", "Equipamento em estoque"),
+)
+
+
+def descricao_sem_situacao_ti(descricao):
+    linhas = str(descricao or "").splitlines()
+    return "\n".join(
+        linha for linha in linhas if not linha.strip().lower().startswith("situacao ti:")
+    ).strip()
+
+
+def situacao_ti_da_descricao(descricao):
+    for linha in str(descricao or "").splitlines():
+        if linha.strip().lower().startswith("situacao ti:"):
+            valor = linha.split(":", 1)[1].strip().lower()
+            if valor in {"uso", "em uso", "equipamento em uso"}:
+                return "uso"
+            if valor in {"estoque", "em estoque", "equipamento em estoque"}:
+                return "estoque"
+    return ""
+
 
 class ItemEstoqueForm(forms.ModelForm):
     saldo_atual = forms.IntegerField(
@@ -23,9 +47,23 @@ class ItemEstoqueForm(forms.ModelForm):
         required=False,
         widget=forms.NumberInput(attrs={**FORM_CONTROL, "min": "0"}),
     )
+    situacao_ti = forms.ChoiceField(
+        label="Situacao no TI",
+        choices=SITUACOES_ESTOQUE_TI,
+        required=False,
+        widget=forms.Select(attrs=FORM_CONTROL),
+    )
 
     def __init__(self, *args, modulo=None, area=None, exibir_categoria=True, **kwargs):
+        self.modulo_estoque = ModuloSistema(modulo) if modulo else None
+        self.area_estoque = area
         super().__init__(*args, **kwargs)
+        if self.modulo_estoque != ModuloSistema.ESTOQUE_TI and area != ItemEstoque.Area.TECNOLOGIA:
+            self.fields.pop("situacao_ti", None)
+        elif not self.is_bound:
+            self.fields["situacao_ti"].initial = situacao_ti_da_descricao(
+                self.instance.descricao if self.instance and self.instance.pk else ""
+            )
         if not exibir_categoria:
             self.fields.pop("categoria", None)
 
@@ -40,6 +78,7 @@ class ItemEstoqueForm(forms.ModelForm):
             "codigo_proprio",
             "nome",
             "descricao",
+            "situacao_ti",
             "unidade_medida",
             "custo_unitario",
             "saldo_atual",
@@ -52,9 +91,8 @@ class ItemEstoqueForm(forms.ModelForm):
         if "categoria" not in self.fields:
             return
         if modulo:
-            modulo = ModuloSistema(modulo)
             self.fields["categoria"].choices = categorias_estoque_por_modulo(
-                modulo,
+                self.modulo_estoque,
                 incluir_codigo=categoria_atual,
             )
             return
@@ -73,6 +111,22 @@ class ItemEstoqueForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             return self.instance.quantidade_atual
         return 0
+
+    def save(self, commit=True):
+        item = super().save(commit=False)
+        if "situacao_ti" in self.fields:
+            descricao_base = descricao_sem_situacao_ti(item.descricao)
+            situacao = self.cleaned_data.get("situacao_ti")
+            if situacao:
+                item.descricao = "\n".join(
+                    parte for parte in [f"Situacao TI: {situacao}", descricao_base] if parte
+                )
+            else:
+                item.descricao = descricao_base
+        if commit:
+            item.save()
+            self.save_m2m()
+        return item
 
     class Meta:
         model = ItemEstoque
@@ -327,3 +381,32 @@ class ImportarEstoquePlanilhasForm(forms.Form):
                 "Importe Copa limpando o estoque e depois Expediente sem limpar."
             )
         return cleaned_data
+
+
+class ImportarEstoqueTIForm(forms.Form):
+    tipo_equipamento = forms.ChoiceField(
+        label="Tipo de equipamento",
+        choices=[
+            ("computador", "Computadores"),
+            ("monitor", "Monitores"),
+        ],
+        widget=forms.Select(attrs=FORM_CONTROL),
+    )
+    situacao = forms.ChoiceField(
+        label="Destino da importacao",
+        choices=[
+            ("uso", "Equipamentos em uso"),
+            ("estoque", "Equipamentos em estoque"),
+        ],
+        initial="uso",
+        widget=forms.Select(attrs=FORM_CONTROL),
+    )
+    substituir_itens = forms.BooleanField(
+        label="Limpar itens desta categoria e situacao antes de importar",
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "checkbox-control"}),
+    )
+    arquivo = forms.FileField(
+        label="Arquivo Excel",
+        widget=forms.FileInput(attrs={**FORM_CONTROL, "accept": ".xlsx,.xlsm"}),
+    )
