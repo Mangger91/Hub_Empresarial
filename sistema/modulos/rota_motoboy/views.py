@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from sistema.models import EnderecoEmpresaMotoboy, ModuloSistema, RotaMotoboy
+from sistema.models import EnderecoEmpresaMotoboy, ModuloSistema, RotaMotoboy, RotaParada
 
 from ..common import MESES_PT_BR, contexto_modulo
 from .forms import EnderecoEmpresaMotoboyForm, RotaMotoboyForm, RotaParadaCriacaoForm
@@ -406,20 +406,32 @@ def rota_motoboy_detalhe(request, pk):
 @login_required
 def buscar_enderecos_rota(request):
     termo = request.GET.get("q", "").strip()
+    resultados = []
+    enderecos_vistos = set()
+
+    def adicionar_resultado(nome, empresa="", origem="salvo"):
+        nome = " ".join(str(nome or "").split())
+        empresa = " ".join(str(empresa or "").split())
+        chave = nome.casefold()
+        if not nome or chave in enderecos_vistos:
+            return
+        resultados.append({"nome": nome, "empresa": empresa, "origem": origem})
+        enderecos_vistos.add(chave)
+
     enderecos_salvos = EnderecoEmpresaMotoboy.objects.filter(ativo=True)
     if termo:
         enderecos_salvos = enderecos_salvos.filter(
             Q(nome__icontains=termo) | Q(endereco__icontains=termo)
         )
 
-    resultados = [
-        {
-            "nome": endereco.endereco,
-            "empresa": endereco.nome,
-            "origem": "salvo",
-        }
-        for endereco in enderecos_salvos[:8]
-    ]
+    for endereco in enderecos_salvos[:10]:
+        adicionar_resultado(endereco.endereco, endereco.nome)
+
+    paradas = RotaParada.objects.exclude(endereco="")
+    if termo:
+        paradas = paradas.filter(Q(empresa__icontains=termo) | Q(endereco__icontains=termo))
+    for parada in paradas.order_by("-criado_em")[:12]:
+        adicionar_resultado(parada.endereco, parada.empresa, "historico")
 
     if len(termo) < 3:
         return JsonResponse({"resultados": resultados})
@@ -429,28 +441,42 @@ def buscar_enderecos_rota(request):
     except RoteirizacaoError:
         sugestoes_mapa = []
 
-    enderecos_vistos = {resultado["nome"] for resultado in resultados}
     for sugestao in sugestoes_mapa:
-        if sugestao["nome"] in enderecos_vistos:
-            continue
-        resultados.append(sugestao)
-        enderecos_vistos.add(sugestao["nome"])
+        adicionar_resultado(sugestao.get("nome"), origem="mapa")
     return JsonResponse({"resultados": resultados})
 
 
 @login_required
 def buscar_empresas_rota(request):
     termo = request.GET.get("q", "").strip()
+    resultados = []
+    empresas_vistas = set()
+
+    def adicionar_empresa(nome, endereco):
+        nome = " ".join(str(nome or "").split())
+        endereco = " ".join(str(endereco or "").split())
+        chave = nome.casefold()
+        if not nome or not endereco or chave in empresas_vistas:
+            return None
+        resultados.append({"id": None, "nome": nome, "endereco": endereco})
+        empresas_vistas.add(chave)
+        return resultados[-1]
+
     enderecos = EnderecoEmpresaMotoboy.objects.filter(ativo=True)
     if termo:
         enderecos = enderecos.filter(Q(nome__icontains=termo) | Q(endereco__icontains=termo))
 
-    resultados = [
-        {
-            "id": endereco.pk,
-            "nome": endereco.nome,
-            "endereco": endereco.endereco,
-        }
-        for endereco in enderecos[:12]
-    ]
+    for endereco in enderecos[:12]:
+        resultado = adicionar_empresa(endereco.nome, endereco.endereco)
+        if resultado:
+            resultado["id"] = endereco.pk
+
+    if len(resultados) < 12:
+        paradas = RotaParada.objects.exclude(empresa="").exclude(endereco="")
+        if termo:
+            paradas = paradas.filter(Q(empresa__icontains=termo) | Q(endereco__icontains=termo))
+        for parada in paradas.order_by("-criado_em")[:24]:
+            adicionar_empresa(parada.empresa, parada.endereco)
+            if len(resultados) >= 12:
+                break
     return JsonResponse({"resultados": resultados})

@@ -1465,6 +1465,54 @@ class RotaMotoboyTests(TestCase):
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json()["resultados"][0]["nome"], "Rua Central, Centro")
 
+    def test_busca_empresas_da_rota_inclui_historico_de_paradas(self):
+        self.client.login(username="rota@empresa.com.br", password="Senha12345")
+        rota = RotaMotoboy.objects.create(data=date(2026, 4, 10), titulo="Historico")
+        rota.paradas.create(
+            ordem=1,
+            empresa="Cliente Historico",
+            endereco="Rua Historica, 321",
+        )
+
+        resposta = self.client.get(reverse("buscar_empresas_rota"), {"q": "Historico"})
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(
+            resposta.json()["resultados"][0],
+            {"id": None, "nome": "Cliente Historico", "endereco": "Rua Historica, 321"},
+        )
+
+    def test_busca_enderecos_da_rota_inclui_historico_de_paradas(self):
+        self.client.login(username="rota@empresa.com.br", password="Senha12345")
+        rota = RotaMotoboy.objects.create(data=date(2026, 4, 10), titulo="Historico")
+        rota.paradas.create(
+            ordem=1,
+            empresa="Cliente Historico",
+            endereco="Rua Historica, 321",
+        )
+
+        resposta = self.client.get(reverse("buscar_enderecos_rota"), {"q": "Historica"})
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["resultados"][0]["nome"], "Rua Historica, 321")
+        self.assertEqual(resposta.json()["resultados"][0]["origem"], "historico")
+
+    def test_geocodificacao_para_na_primeira_consulta_com_resultado(self):
+        from sistema.modulos.rota_motoboy.roteirizacao import geocodificar_endereco
+
+        with patch(
+            "sistema.modulos.rota_motoboy.roteirizacao._buscar_geocoder_estruturado",
+            return_value=[],
+        ), patch(
+            "sistema.modulos.rota_motoboy.roteirizacao._buscar_geocoder_por_texto",
+            return_value=[{"lat": "-23.500000", "lon": "-46.600000"}],
+        ) as buscar_texto:
+            coordenadas = geocodificar_endereco("Rua Sequencial, 123")
+
+        self.assertEqual(coordenadas["latitude"], Decimal("-23.500000"))
+        self.assertEqual(coordenadas["longitude"], Decimal("-46.600000"))
+        buscar_texto.assert_called_once()
+
     def test_otimiza_rota_e_calcula_km(self):
         from sistema.modulos.rota_motoboy.roteirizacao import otimizar_rota_motoboy
 

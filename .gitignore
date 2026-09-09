@@ -12,3 +12,6 @@ logs/
 media/
 output/
 tmp/
+
+.vercel
+.env*

@@ -1,12 +1,16 @@
+import hashlib
 import json
 import math
 import re
+import threading
+import time
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
@@ -15,12 +19,33 @@ class RoteirizacaoError(Exception):
     pass
 
 
+_GEOCODER_LOCK = threading.Lock()
+_ULTIMA_CONSULTA_GEOCODER = 0.0
+
+
 def _km(metros):
     return (Decimal(str(metros)) / Decimal("1000")).quantize(Decimal("0.01"))
 
 
 def _minutos(segundos):
     return int(math.ceil(float(segundos) / 60)) if segundos else 0
+
+
+def _aguardar_limite_geocoder(url):
+    if settings.ROTA_MOTOBOY_GEOCODER_URL not in url:
+        return
+
+    intervalo = getattr(settings, "ROTA_MOTOBOY_GEOCODER_INTERVALO_SEGUNDOS", 1.0)
+    if intervalo <= 0:
+        return
+
+    global _ULTIMA_CONSULTA_GEOCODER
+    with _GEOCODER_LOCK:
+        agora = time.monotonic()
+        espera = intervalo - (agora - _ULTIMA_CONSULTA_GEOCODER)
+        if espera > 0:
+            time.sleep(espera)
+        _ULTIMA_CONSULTA_GEOCODER = time.monotonic()
 
 
 def _http_json(url):
@@ -32,9 +57,14 @@ def _http_json(url):
         },
     )
     try:
+        _aguardar_limite_geocoder(url)
         with urlopen(request, timeout=settings.ROTA_MOTOBOY_REQUEST_TIMEOUT) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as erro:
+        if erro.code == 429:
+            raise RoteirizacaoError(
+                "Servico de mapas limitou as consultas. Tente novamente em alguns instantes."
+            ) from erro
         raise RoteirizacaoError(f"Servico de mapas respondeu com erro HTTP {erro.code}.") from erro
     except URLError as erro:
         raise RoteirizacaoError(f"Nao foi possivel acessar o servico de mapas: {erro.reason}.") from erro
@@ -155,23 +185,38 @@ def geocodificar_endereco(endereco):
     if not endereco:
         raise RoteirizacaoError("Informe o endereco para calcular a rota.")
 
-    consultas = [_buscar_geocoder_estruturado(endereco, 1)]
-    consultas.extend(_buscar_geocoder_por_texto(termo, 1) for termo in _endereco_variantes_busca(endereco))
+    endereco_hash = hashlib.sha256(endereco.casefold().encode("utf-8")).hexdigest()
+    cache_key = f"rota_motoboy:geocoder:{endereco_hash}"
+    coordenadas_cache = cache.get(cache_key)
+    if coordenadas_cache:
+        return {
+            "latitude": Decimal(str(coordenadas_cache["latitude"])).quantize(Decimal("0.000001")),
+            "longitude": Decimal(str(coordenadas_cache["longitude"])).quantize(Decimal("0.000001")),
+        }
 
     dados = []
-    for consulta in consultas:
-        if consulta:
-            dados = consulta
+    consultas = [
+        lambda: _buscar_geocoder_estruturado(endereco, 1),
+        *[
+            lambda termo=termo: _buscar_geocoder_por_texto(termo, 1)
+            for termo in _endereco_variantes_busca(endereco)
+        ],
+    ]
+    for buscar in consultas:
+        dados = buscar()
+        if dados:
             break
 
     if not dados:
         raise RoteirizacaoError(f"Nao encontramos coordenadas para: {endereco}.")
 
     resultado = dados[0]
-    return {
+    coordenadas = {
         "latitude": Decimal(str(resultado["lat"])).quantize(Decimal("0.000001")),
         "longitude": Decimal(str(resultado["lon"])).quantize(Decimal("0.000001")),
     }
+    cache.set(cache_key, coordenadas, 60 * 60 * 24 * 30)
+    return coordenadas
 
 
 def buscar_sugestoes_endereco(termo, limite=5):
@@ -179,11 +224,17 @@ def buscar_sugestoes_endereco(termo, limite=5):
     if len(termo) < 3:
         return []
 
-    consultas = [_buscar_geocoder_estruturado(termo, limite)]
-    consultas.extend(_buscar_geocoder_por_texto(termo_busca, limite) for termo_busca in _endereco_variantes_busca(termo))
+    consultas = [
+        lambda: _buscar_geocoder_estruturado(termo, limite),
+        *[
+            lambda termo_busca=termo_busca: _buscar_geocoder_por_texto(termo_busca, limite)
+            for termo_busca in _endereco_variantes_busca(termo)
+        ],
+    ]
     sugestoes = []
     nomes_vistos = set()
-    for dados in consultas:
+    for buscar in consultas:
+        dados = buscar()
         for item in dados:
             nome = item.get("display_name")
             lat = item.get("lat")

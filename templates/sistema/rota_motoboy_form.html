@@ -18,7 +18,7 @@
     .route-stop-card {
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--surface);
         padding: 14px;
     }
 
@@ -47,7 +47,7 @@
         overflow-y: auto;
         border: 1px solid var(--border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--surface);
         box-shadow: 0 12px 26px rgba(15, 23, 42, 0.16);
     }
 
@@ -69,6 +69,13 @@
         cursor: pointer;
         padding: 10px 12px;
         text-align: left;
+    }
+
+    .address-suggestion:hover,
+    .address-suggestion:focus,
+    .company-suggestion:hover,
+    .company-suggestion:focus {
+        background: var(--surface-soft);
     }
 
     .address-suggestion:last-child {
@@ -102,6 +109,12 @@
         color: #1e3a8a;
         line-height: 1.55;
         padding: 12px 14px;
+    }
+
+    :root[data-theme="dark"] .route-info {
+        border-color: #315f9d;
+        background: #12294a;
+        color: #cfe1ff;
     }
 </style>
 {% endblock %}
